@@ -21,9 +21,17 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 const GATEWAY_BIN = process.env.NIMBUS_GATEWAY_BIN;
-const STARTUP_TIMEOUT_MS = 15000;
-const STREAM_TIMEOUT_MS = 30000;
-const NODE_TEST_TIMEOUT_MS = 60000;
+// Gateway startup includes initializing the embedding runtime (@xenova/
+// transformers + native sharp binaries). On a cold-cache Windows GHA
+// runner this regularly takes 20-40 s. Empirical: rc3 release run
+// 25454797314 had the gateway alive (exit=null) but pipe-not-yet-ready
+// at the 15 s cutoff. 60 s gives ~2× headroom over observed worst-case.
+const STARTUP_TIMEOUT_MS = 60_000;
+const STREAM_TIMEOUT_MS = 30_000;
+// Per-test cap. Must comfortably exceed STARTUP_TIMEOUT_MS + STREAM_TIMEOUT_MS
+// + teardown, otherwise node:test cancels the whole test before its assertions
+// can run. 60 s + 30 s + slack = 120 s.
+const NODE_TEST_TIMEOUT_MS = 120_000;
 
 if (GATEWAY_BIN === undefined) {
   await test("node-compat (skipped — NIMBUS_GATEWAY_BIN not set)", { skip: true }, () => undefined);
