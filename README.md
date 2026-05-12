@@ -1,6 +1,18 @@
 # @nimbus-dev/client
 
-MIT-licensed JSON-RPC IPC client for the Nimbus Gateway (`nimbus start`). Published to npm as **`@nimbus-dev/client`**: **`import`** loads `dist/index.js` (ESM); **`require`** loads `dist/index.cjs` (bundled CommonJS). Run `bun run build` in this package before publishing (`prepublishOnly` does this automatically).
+## What this is
+
+MIT-licensed JSON-RPC IPC client for the Nimbus Gateway (`nimbus start`). Published to npm as **`@nimbus-dev/client`**: **`import`** loads `dist/index.js` (ESM); **`require`** loads `dist/index.cjs` (bundled CommonJS).
+
+## Install
+
+```bash
+npm install @nimbus-dev/client
+```
+
+Run `bun run build` in this package before publishing (`prepublishOnly` does this automatically).
+
+## Quickstart
 
 ```typescript
 import { NimbusClient, IPCClient } from "@nimbus-dev/client";
@@ -22,3 +34,11 @@ Example:
 git tag client-v0.1.0
 git push origin client-v0.1.0
 ```
+
+## See also
+
+- [Nimbus Developer Guide](https://nimbus-agent.dev/)
+
+## License
+
+MIT
