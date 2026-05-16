@@ -57,11 +57,11 @@ describe("getNimbusPaths per platform", () => {
 
   test("darwin honors TMPDIR for socketPath", () => {
     setPlatform("darwin");
-    // Use a non-tmp path so the assertion is purely about TMPDIR being honored,
-    // not about validating any tmp-dir convention.
-    process.env.TMPDIR = "/Users/u/Library/Caches/nimbus-test/";
+    // Pure string-prefix assertion — never written to. Use a synthetic, non-FHS
+    // path so the test does not resemble a writable-directory usage.
+    process.env.TMPDIR = "/synthetic-tmpdir-test/";
     const p = getNimbusPaths();
-    expect(p.socketPath).toBe("/Users/u/Library/Caches/nimbus-test/nimbus-gateway.sock");
+    expect(p.socketPath).toBe("/synthetic-tmpdir-test/nimbus-gateway.sock");
   });
 
   test("linux honors XDG_RUNTIME_DIR", () => {
