@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.5.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.4.0...client-v0.5.0) (2026-07-16)
+
+
+### Miscellaneous Chores
+
+* cut first standalone release 0.5.0 ([d6309cf](https://github.com/nimbus-agent/nimbus-client/commit/d6309cf6f72eaf153185ca2db13775b81801ea07))
+
 ## [0.4.0](https://github.com/nimbus-agent/Nimbus/compare/client-v0.3.0...client-v0.4.0) (2026-07-14)
 
 
