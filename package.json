@@ -31,6 +31,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/",
     "test": "bun test",
+    "test:coverage": "bun test --coverage --coverage-reporter=lcov",
     "prepublishOnly": "bun run build && bun run typecheck && bun test"
   },
   "dependencies": {
