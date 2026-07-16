@@ -32,6 +32,7 @@
     "lint": "biome check src/",
     "test": "bun test",
     "test:coverage": "bun test --coverage --coverage-reporter=lcov",
+    "verify:sdk": "bun run scripts/verify-against-local-sdk.ts",
     "prepublishOnly": "bun run build && bun run typecheck && bun test"
   },
   "dependencies": {
