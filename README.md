@@ -40,14 +40,13 @@ const proof = await client.egressProveWindow({ since: Date.now() - 3_600_000 });
 
 ## Publishing (maintainers)
 
-CI publishes on push of a tag matching `client-v*` (see `.github/workflows/publish-client.yml` in the Nimbus repo). Configure a GitHub Actions secret **`NPM_TOKEN`** (npm access token with publish rights to this scope).
-
-Example:
-
-```bash
-git tag client-v0.1.0
-git push origin client-v0.1.0
-```
+Releases are automated by [release-please](https://github.com/googleapis/release-please).
+Merged [Conventional Commits](https://www.conventionalcommits.org/) on `main` open a
+release PR; merging it tags the release and triggers `.github/workflows/release.yml`,
+which publishes `@nimbus-dev/client` to npm with `npm publish --provenance` via GitHub
+Actions OIDC / npm **trusted-publisher**. There is **no long-lived npm token** — the
+trusted-publisher binding authenticates the workflow and attaches a verifiable provenance
+attestation (see [`SECURITY.md`](./SECURITY.md)).
 
 ## See also
 
