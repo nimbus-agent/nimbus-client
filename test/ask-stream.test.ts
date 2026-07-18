@@ -26,6 +26,13 @@ class FakeIpc {
     arr.push(handler);
   }
 
+  offNotification(method: string, handler: (params: unknown) => void): void {
+    const arr = this.notifHandlers.get(method);
+    if (arr === undefined) return;
+    const i = arr.indexOf(handler);
+    if (i >= 0) arr.splice(i, 1);
+  }
+
   emit(method: string, params: unknown): void {
     for (const h of this.notifHandlers.get(method) ?? []) h(params);
   }
@@ -313,6 +320,96 @@ describe("askStream", () => {
     expect(hitl.details).toEqual({ target: "prod" });
   });
 
+  // ── startPromise: transport/RPC rejection → stream_start_failed ───────────
+
+  test("emits stream_start_failed error when engine.askStream rejects", async () => {
+    const failingIpc = {
+      calls: [] as CallSpy[],
+      call(method: string, params: unknown): Promise<unknown> {
+        failingIpc.calls.push({ method, params });
+        return Promise.reject(new Error("transport down"));
+      },
+      onNotification(): void {},
+      offNotification(): void {},
+    };
+    const handle = createAskStream(failingIpc as never, "hello");
+    const events: StreamEvent[] = [];
+    for await (const ev of handle) events.push(ev);
+    expect(events).toEqual([
+      { type: "error", code: "stream_start_failed", message: "transport down" },
+    ]);
+  });
+
+  // ── early notifications (before streamId resolves) are replayed ───────────
+
+  test("tokens emitted before the streamId resolves are buffered and replayed", async () => {
+    let resolveAskStream!: (v: unknown) => void;
+    const slowIpc = {
+      calls: [] as CallSpy[],
+      notifHandlers: new Map<string, ((p: unknown) => void)[]>(),
+      call(method: string, params: unknown): Promise<unknown> {
+        slowIpc.calls.push({ method, params });
+        if (method === "engine.askStream") {
+          return new Promise<unknown>((res) => {
+            resolveAskStream = res;
+          });
+        }
+        return Promise.resolve({ ok: true });
+      },
+      onNotification(method: string, handler: (params: unknown) => void): void {
+        let arr = slowIpc.notifHandlers.get(method);
+        if (arr === undefined) {
+          arr = [];
+          slowIpc.notifHandlers.set(method, arr);
+        }
+        arr.push(handler);
+      },
+      offNotification(): void {},
+      emit(method: string, params: unknown): void {
+        for (const h of slowIpc.notifHandlers.get(method) ?? []) h(params);
+      },
+    };
+
+    const handle = createAskStream(slowIpc as never, "hello");
+    const events: StreamEvent[] = [];
+    const drain = (async () => {
+      for await (const ev of handle) events.push(ev);
+    })();
+
+    // Notifications arrive BEFORE engine.askStream has resolved the streamId.
+    slowIpc.emit("engine.streamToken", { streamId: "s-race", text: "early" });
+    slowIpc.emit("engine.streamDone", { streamId: "s-race" });
+
+    // Now the RPC resolves; the buffered events must replay in order.
+    resolveAskStream({ streamId: "s-race" });
+    await drain;
+
+    expect(events.map((e) => e.type)).toEqual(["token", "done"]);
+    expect((events[0] as { text: string }).text).toBe("early");
+  });
+
+  // ── iterator return() cancels the gateway stream ──────────────────────────
+
+  test("breaking out of for-await sends engine.cancelStream to the gateway", async () => {
+    const handle = createAskStream(ipc as never, "hello");
+    const events: StreamEvent[] = [];
+    const drain = (async () => {
+      for await (const ev of handle) {
+        events.push(ev);
+        break;
+      }
+    })();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    ipc.emit("engine.streamToken", { streamId: "stream-1", text: "first" });
+    await drain;
+
+    const cancelCall = ipc.calls.find((c) => c.method === "engine.cancelStream");
+    expect(cancelCall).toBeDefined();
+    expect(cancelCall?.params).toMatchObject({ streamId: "stream-1" });
+  });
+
   // ── startPromise: no_stream_id error branch ───────────────────────────────
 
   test("emits error and finishes when gateway returns no streamId", async () => {
@@ -370,6 +467,7 @@ describe("askStream", () => {
         }
         arr.push(handler);
       },
+      offNotification(): void {},
     };
 
     const handle = createAskStream(slowIpc as never, "hello");
@@ -409,6 +507,7 @@ describe("askStream", () => {
         return Promise.resolve({ ok: true });
       },
       onNotification(): void {},
+      offNotification(): void {},
     };
 
     const handle = createAskStream(slowIpc as never, "hello");
@@ -582,6 +681,7 @@ describe("askStream", () => {
         }
         arr.push(handler);
       },
+      offNotification(): void {},
     };
 
     const handle = createAskStream(slowIpc as never, "hello");
