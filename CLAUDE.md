@@ -10,7 +10,7 @@ gateway (`nimbus start`) without hand-rolling the IPC contract. Published to npm
 
 ## Stack
 
-- **Runtime:** Bun v1.2+ · **Language:** TypeScript 6.x strict · **Linter:** Biome
+- **Runtime:** Bun v1.2+ · **Language:** TypeScript 7.x strict · **Linter:** Biome
 - **Single runtime dependency:** [`@nimbus-dev/sdk`](https://github.com/nimbus-agent/nimbus-sdk),
   pinned to the published `^1.3.0` (never `workspace:*` in this standalone repo).
 - **No `any`** — use `unknown` for external data; strict mode is non-negotiable.
