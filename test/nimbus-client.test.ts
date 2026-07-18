@@ -21,6 +21,12 @@ class FakeIpc {
     arr.push(handler);
     this.notifHandlers.set(method, arr);
   }
+  offNotification(method: string, handler: (p: unknown) => void): void {
+    const arr = this.notifHandlers.get(method);
+    if (arr === undefined) return;
+    const i = arr.indexOf(handler);
+    if (i >= 0) arr.splice(i, 1);
+  }
   emit(method: string, params: unknown): void {
     for (const h of this.notifHandlers.get(method) ?? []) h(params);
   }
@@ -86,11 +92,13 @@ describe("NimbusClient method dispatch", () => {
     const ipc = new FakeIpc([{ items: [], meta: { limit: 0, total: 0 } }]);
     await makeClient(ipc).queryItems({ services: ["github"], types: ["pr"], limit: 5 });
     expect(ipc.calls[0]).toMatchObject({ method: "index.queryItems" });
-    expect((ipc.calls[0]?.params as Record<string, unknown>)["services"]).toEqual(["github"]);
+    const params = ipc.calls[0]?.params as Record<string, unknown>;
+    expect(params["services"]).toEqual(["github"]);
   });
 
   test("searchRanked routes to index.searchRanked and returns the rows", async () => {
-    const ipc = new FakeIpc([[{ id: "x", score: 1 }]]);
+    const row = { id: "x", score: 1, indexPrimaryKey: "pk-x", indexedType: "file" };
+    const ipc = new FakeIpc([[row]]);
     const out = await makeClient(ipc).searchRanked({
       name: "plan",
       service: "drive",
@@ -108,7 +116,7 @@ describe("NimbusClient method dispatch", () => {
       semantic: false,
       contextChunks: 1,
     });
-    expect(out).toEqual([{ id: "x", score: 1 }]);
+    expect(out).toEqual([row]);
   });
 
   test("searchRanked tolerates being called with no params", async () => {
