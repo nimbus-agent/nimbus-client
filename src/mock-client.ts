@@ -8,8 +8,10 @@ import type {
   EgressProveWindowResult,
   EgressRow,
   EgressVerifyResult,
+  NimbusClientLike,
   RankedSearchItem,
   RankedSearchParams,
+  SessionTranscript,
 } from "./nimbus-client.js";
 import type {
   AskStreamHandle,
@@ -23,6 +25,7 @@ export type MockClientFixtures = {
   rankedItems?: RankedSearchItem[];
   streamTokens?: string[];
   reply?: string;
+  sqlRows?: Record<string, unknown>[];
   egressHead?: EgressHead;
   egressRows?: EgressRow[];
   egressVerify?: EgressVerifyResult;
@@ -31,8 +34,9 @@ export type MockClientFixtures = {
 
 /**
  * In-memory stub for scripts/tests without a running Gateway.
+ * Implements {@link NimbusClientLike}, so it stays in sync with the real client.
  */
-export class MockClient {
+export class MockClient implements NimbusClientLike {
   private readonly fixtures: MockClientFixtures;
 
   constructor(fixtures: MockClientFixtures = {}) {
@@ -41,8 +45,8 @@ export class MockClient {
 
   async agentInvoke(
     _input: string,
-    _options?: { stream?: boolean },
-  ): Promise<{ reply: string } & Record<string, unknown>> {
+    _options?: { stream?: boolean; sessionId?: string; agent?: string },
+  ): Promise<{ reply?: string } & Record<string, unknown>> {
     return { reply: this.fixtures.reply ?? "[MockClient] agent.invoke" };
   }
 
@@ -84,11 +88,10 @@ export class MockClient {
     return { dispose: () => undefined };
   }
 
-  async getSessionTranscript(): Promise<{
+  async getSessionTranscript(_params: {
     sessionId: string;
-    turns: Array<{ role: "user" | "assistant"; text: string; timestamp: number }>;
-    hasMore: boolean;
-  }> {
+    limit?: number;
+  }): Promise<SessionTranscript> {
     return { sessionId: "mock-session", turns: [], hasMore: false };
   }
 
@@ -102,8 +105,8 @@ export class MockClient {
     sinceMs?: number;
     untilMs?: number;
     limit?: number;
-  }): Promise<{ items: NimbusItem[]; meta: { limit: number; total: number } }> {
-    const items = this.fixtures.items ?? [];
+  }): Promise<{ items: Record<string, unknown>[]; meta: { limit: number; total: number } }> {
+    const items = (this.fixtures.items ?? []) as unknown as Record<string, unknown>[];
     return { items, meta: { limit: items.length, total: items.length } };
   }
 
@@ -112,10 +115,10 @@ export class MockClient {
   }
 
   async querySql(_sql: string): Promise<{ rows: Record<string, unknown>[] }> {
-    return { rows: [] };
+    return { rows: this.fixtures.sqlRows ?? [] };
   }
 
-  async auditList(): Promise<unknown[]> {
+  async auditList(_limit?: number): Promise<unknown[]> {
     return [];
   }
 

@@ -9,7 +9,7 @@ export {
   readGatewayState,
   type SocketDiscoveryResult,
 } from "./discovery.js";
-export { IPCClient } from "./ipc-transport.js";
+export { IPCClient, type IPCClientOptions } from "./ipc-transport.js";
 export { MockClient, type MockClientFixtures } from "./mock-client.js";
 export {
   type EgressCompleteness,
@@ -22,6 +22,7 @@ export {
   type EgressRow,
   type EgressVerifyResult,
   NimbusClient,
+  type NimbusClientLike,
   type NimbusClientOptions,
   type RankedSearchItem,
   type RankedSearchParams,
@@ -34,3 +35,4 @@ export type {
   HitlRequest,
   StreamEvent,
 } from "./stream-events.js";
+export { IpcResponseError } from "./validate.js";

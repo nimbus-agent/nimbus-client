@@ -3,9 +3,28 @@ import type { NimbusItem } from "@nimbus-dev/sdk";
 import { createAskStream } from "./ask-stream.js";
 import { IPCClient } from "./ipc-transport.js";
 import type { AskStreamHandle, AskStreamOptions, HitlRequest } from "./stream-events.js";
+import {
+  validateAgentInvoke,
+  validateAuditList,
+  validateEgressHead,
+  validateEgressList,
+  validateEgressProveWindow,
+  validateEgressVerify,
+  validateOk,
+  validateQueryItems,
+  validateQuerySql,
+  validateRankedItems,
+  validateSessionTranscript,
+} from "./validate.js";
 
 export type NimbusClientOptions = {
   socketPath: string;
+  /**
+   * Per-request timeout in milliseconds passed to the transport. A call that
+   * receives no response within this window rejects. `0` disables it.
+   * Default: 30000.
+   */
+  requestTimeoutMs?: number;
 };
 
 /** Parameters for {@link NimbusClient.searchRanked}. */
@@ -139,9 +158,40 @@ export type EgressProveWindowResult = {
 };
 
 /**
+ * The public surface shared by {@link NimbusClient} and
+ * {@link MockClient}. A consumer can type against this so the real client and
+ * the in-memory stub stay interchangeable (and in sync at compile time).
+ */
+export interface NimbusClientLike {
+  agentInvoke(
+    input: string,
+    options?: { stream?: boolean; sessionId?: string; agent?: string },
+  ): Promise<{ reply?: string } & Record<string, unknown>>;
+  askStream(input: string, opts?: AskStreamOptions): AskStreamHandle;
+  subscribeHitl(handler: (req: HitlRequest) => void): { dispose(): void };
+  getSessionTranscript(params: { sessionId: string; limit?: number }): Promise<SessionTranscript>;
+  cancelStream(streamId: string): Promise<{ ok: boolean }>;
+  queryItems(params: {
+    services?: string[];
+    types?: string[];
+    sinceMs?: number;
+    untilMs?: number;
+    limit?: number;
+  }): Promise<{ items: Record<string, unknown>[]; meta: { limit: number; total: number } }>;
+  searchRanked(params?: RankedSearchParams): Promise<RankedSearchItem[]>;
+  querySql(sql: string): Promise<{ rows: Record<string, unknown>[] }>;
+  auditList(limit?: number): Promise<unknown[]>;
+  egressHead(): Promise<EgressHead>;
+  egressList(params?: EgressListParams): Promise<EgressListResult>;
+  egressVerify(): Promise<EgressVerifyResult>;
+  egressProveWindow(params?: EgressProveWindowParams): Promise<EgressProveWindowResult>;
+  close(): Promise<void>;
+}
+
+/**
  * Typed convenience wrapper over the Gateway JSON-RPC IPC surface.
  */
-export class NimbusClient {
+export class NimbusClient implements NimbusClientLike {
   private readonly ipc: IPCClient;
 
   private constructor(ipc: IPCClient) {
@@ -149,7 +199,9 @@ export class NimbusClient {
   }
 
   static async open(opts: NimbusClientOptions): Promise<NimbusClient> {
-    const ipc = new IPCClient(opts.socketPath);
+    const ipc = new IPCClient(opts.socketPath, {
+      ...(opts.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: opts.requestTimeoutMs }),
+    });
     await ipc.connect();
     return new NimbusClient(ipc);
   }
@@ -158,12 +210,13 @@ export class NimbusClient {
     input: string,
     options?: { stream?: boolean; sessionId?: string; agent?: string },
   ): Promise<{ reply?: string } & Record<string, unknown>> {
-    return await this.ipc.call("agent.invoke", {
+    const raw = await this.ipc.call("agent.invoke", {
       input,
       stream: options?.stream ?? false,
       ...(options?.sessionId === undefined ? {} : { sessionId: options.sessionId }),
       ...(options?.agent === undefined ? {} : { agent: options.agent }),
     });
+    return validateAgentInvoke("agent.invoke", raw);
   }
 
   askStream(input: string, opts?: AskStreamOptions): AskStreamHandle {
@@ -189,7 +242,7 @@ export class NimbusClient {
     this.ipc.onNotification("agent.hitlBatch", onBatch);
     return {
       dispose: () => {
-        // IPCClient has no off(); guarded by handler-side dedupe in HitlRouter
+        this.ipc.offNotification("agent.hitlBatch", onBatch);
       },
     };
   }
@@ -198,11 +251,13 @@ export class NimbusClient {
     sessionId: string;
     limit?: number;
   }): Promise<SessionTranscript> {
-    return await this.ipc.call<SessionTranscript>("engine.getSessionTranscript", params);
+    const raw = await this.ipc.call("engine.getSessionTranscript", params);
+    return validateSessionTranscript("engine.getSessionTranscript", raw);
   }
 
   async cancelStream(streamId: string): Promise<{ ok: boolean }> {
-    return await this.ipc.call<{ ok: boolean }>("engine.cancelStream", { streamId });
+    const raw = await this.ipc.call("engine.cancelStream", { streamId });
+    return validateOk("engine.cancelStream", raw);
   }
 
   async queryItems(params: {
@@ -212,17 +267,18 @@ export class NimbusClient {
     untilMs?: number;
     limit?: number;
   }): Promise<{ items: Record<string, unknown>[]; meta: { limit: number; total: number } }> {
-    return await this.ipc.call("index.queryItems", {
+    const raw = await this.ipc.call("index.queryItems", {
       services: params.services,
       types: params.types,
       sinceMs: params.sinceMs,
       untilMs: params.untilMs,
       limit: params.limit,
     });
+    return validateQueryItems("index.queryItems", raw);
   }
 
   async searchRanked(params: RankedSearchParams = {}): Promise<RankedSearchItem[]> {
-    return await this.ipc.call<RankedSearchItem[]>("index.searchRanked", {
+    const raw = await this.ipc.call("index.searchRanked", {
       name: params.name,
       service: params.service,
       itemType: params.itemType,
@@ -230,33 +286,37 @@ export class NimbusClient {
       semantic: params.semantic,
       contextChunks: params.contextChunks,
     });
+    return validateRankedItems("index.searchRanked", raw);
   }
 
   async querySql(sql: string): Promise<{ rows: Record<string, unknown>[] }> {
-    return await this.ipc.call("index.querySql", { sql });
+    const raw = await this.ipc.call("index.querySql", { sql });
+    return validateQuerySql("index.querySql", raw);
   }
 
   async auditList(limit?: number): Promise<unknown[]> {
-    return await this.ipc.call("audit.list", { limit: limit ?? 50 });
+    const raw = await this.ipc.call("audit.list", { limit: limit ?? 50 });
+    return validateAuditList("audit.list", raw);
   }
 
   /** Egress ledger head hash + row count (read-only). */
   async egressHead(): Promise<EgressHead> {
-    return await this.ipc.call<EgressHead>("egress.head");
+    return validateEgressHead("egress.head", await this.ipc.call("egress.head"));
   }
 
   /** List egress-ledger rows, optionally windowed and clamped (read-only). */
   async egressList(params: EgressListParams = {}): Promise<EgressListResult> {
-    return await this.ipc.call<EgressListResult>("egress.list", {
+    const raw = await this.ipc.call("egress.list", {
       since: params.since,
       until: params.until,
       limit: params.limit,
     });
+    return validateEgressList("egress.list", raw);
   }
 
   /** Offline, timing-safe verify of the whole egress chain (read-only). */
   async egressVerify(): Promise<EgressVerifyResult> {
-    return await this.ipc.call<EgressVerifyResult>("egress.verify");
+    return validateEgressVerify("egress.verify", await this.ipc.call("egress.verify"));
   }
 
   /**
@@ -264,11 +324,12 @@ export class NimbusClient {
    * a whole-ledger verify, and — when `sign` is set — a signed receipt.
    */
   async egressProveWindow(params: EgressProveWindowParams = {}): Promise<EgressProveWindowResult> {
-    return await this.ipc.call<EgressProveWindowResult>("egress.proveWindow", {
+    const raw = await this.ipc.call("egress.proveWindow", {
       since: params.since,
       until: params.until,
       sign: params.sign,
     });
+    return validateEgressProveWindow("egress.proveWindow", raw);
   }
 
   async close(): Promise<void> {
