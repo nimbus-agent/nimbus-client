@@ -15,8 +15,8 @@ bun install
 ## Develop
 
 ```bash
-bun run typecheck   # tsc --noEmit (strict)
-bun run lint        # biome check src/
+bun run typecheck   # tsc --noEmit (src) + tsc -p tsconfig.test.json (tests + scripts)
+bun run lint        # biome check .  (whole tree)
 bun run test        # bun test
 bun run build       # tsc → dist/ (JS + .d.ts + declaration maps) + bundled CJS
 ```
@@ -29,7 +29,14 @@ bun run build       # tsc → dist/ (JS + .d.ts + declaration maps) + bundled CJ
   you need a helper, inline it.
 - **No `any`; TypeScript strict.** Use `unknown` for data crossing a boundary and
   narrow with a type guard. Biome enforces the rules in `biome.json`, including
-  `noExplicitAny` and `noConsole` in `src/`.
+  `noExplicitAny` and `noConsole` in `src/` (`scripts/` and `test/` relax
+  `noConsole`).
+- **Validate IPC results.** `IPCClient.call<T>()` casts wire data without checking
+  it; public `NimbusClient` methods must validate the result through a guard in
+  `src/validate.ts` (throws `IpcResponseError`) before returning.
+- **Keep the mock in sync.** `NimbusClient` and `MockClient` both
+  `implements NimbusClientLike`. Change the interface when you change the public
+  surface and the compiler keeps the mock honest.
 - **Public surface is the `exports` map.** Changing an exported type is a
   semver-relevant change — bump accordingly (Conventional Commits drive
   release-please).

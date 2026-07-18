@@ -17,12 +17,35 @@ Run `bun run build` in this package before publishing (`prepublishOnly` does thi
 ```typescript
 import { NimbusClient, IPCClient } from "@nimbus-dev/client";
 
-const client = await NimbusClient.open({ socketPath: "/tmp/nimbus-gateway.sock" });
+const client = await NimbusClient.open({
+  socketPath: "/tmp/nimbus-gateway.sock",
+  requestTimeoutMs: 30_000, // optional; per-request timeout, 0 disables. Default 30s.
+});
 const out = await client.queryItems({ services: ["github"], limit: 10 });
 await client.close();
 ```
 
-Use `MockClient` in unit tests when no Gateway process is available.
+`NimbusClient` and `MockClient` both implement `NimbusClientLike`, so you can type
+against the interface and swap the in-memory `MockClient` into unit tests when no
+Gateway process is available.
+
+### Validated responses
+
+Every `NimbusClient` method validates the Gateway's JSON-RPC result before
+returning it. A malformed or version-skewed response throws an `IpcResponseError`
+at the call site rather than silently returning mistyped data:
+
+```typescript
+import { IpcResponseError } from "@nimbus-dev/client";
+
+try {
+  const head = await client.egressHead();
+} catch (err) {
+  if (err instanceof IpcResponseError) {
+    // The gateway returned a shape this client version doesn't understand.
+  }
+}
+```
 
 ### Egress ledger (provable locality)
 
