@@ -14,6 +14,11 @@ export function createAskStream(
   let streamIdResolved: string | undefined;
   let cancelled = false;
   let unsubscribers: Array<() => void> = [];
+  // Notifications that arrive before engine.askStream resolves the streamId are
+  // buffered here and replayed once the id is known (see the subscribe-before-send
+  // note below), so tokens pipelined in the same socket chunk as the RPC response
+  // are not lost.
+  let early: Array<() => void> = [];
 
   const push = (ev: StreamEvent): void => {
     if (done) return;
@@ -28,12 +33,17 @@ export function createAskStream(
   const finish = (): void => {
     if (done) return;
     done = true;
+    early = [];
     for (const u of unsubscribers) u();
     unsubscribers = [];
     while (waiters.length > 0) {
       const w = waiters.shift() as Pending;
       w.resolve({ value: undefined, done: true });
     }
+  };
+
+  const cancelUpstream = async (sid: string): Promise<void> => {
+    await ipc.call("engine.cancelStream", { streamId: sid }).catch(() => undefined);
   };
 
   const matchesStream = (params: unknown): params is { streamId: string } => {
@@ -44,68 +54,78 @@ export function createAskStream(
     );
   };
 
-  const subscribe = (streamId: string): void => {
-    const onToken = (params: unknown): void => {
-      if (!matchesStream(params) || params.streamId !== streamId) return;
-      const text = (params as { text?: unknown }).text;
-      if (typeof text === "string") push({ type: "token", text });
-    };
-    const onDone = (params: unknown): void => {
-      if (!matchesStream(params) || params.streamId !== streamId) return;
-      const meta = (params as { meta?: { reply?: unknown; sessionId?: unknown } }).meta ?? {};
-      const reply = typeof meta.reply === "string" ? meta.reply : "";
-      const sessionId = typeof meta.sessionId === "string" ? meta.sessionId : "";
-      push({ type: "done", reply, sessionId });
-      finish();
-    };
-    const onError = (params: unknown): void => {
-      if (!matchesStream(params) || params.streamId !== streamId) return;
-      const code =
-        typeof (params as { code?: unknown }).code === "string"
-          ? (params as unknown as { code: string }).code
-          : "stream_error";
-      const message =
-        typeof (params as { error?: unknown }).error === "string"
-          ? (params as unknown as { error: string }).error
-          : "Stream error";
-      push({ type: "error", code, message });
-      finish();
-    };
-    const onSubTask = (params: unknown): void => {
-      if (!matchesStream(params) || params.streamId !== streamId) return;
-      const p = params as {
-        subTaskId?: unknown;
-        status?: unknown;
-        progress?: unknown;
+  // Wrap a typed handler so it (a) buffers events that arrive before the streamId
+  // is known and (b) only fires for events tagged with *our* streamId.
+  const whenMatched =
+    (handler: (params: { streamId: string }) => void) =>
+    (params: unknown): void => {
+      const run = (): void => {
+        if (matchesStream(params) && params.streamId === streamIdResolved) handler(params);
       };
-      if (typeof p.subTaskId !== "string" || typeof p.status !== "string") return;
-      const ev: StreamEvent =
-        typeof p.progress === "number"
-          ? {
-              type: "subTaskProgress",
-              subTaskId: p.subTaskId,
-              status: p.status,
-              progress: p.progress,
-            }
-          : { type: "subTaskProgress", subTaskId: p.subTaskId, status: p.status };
-      push(ev);
-    };
-    const onHitl = (params: unknown): void => {
-      if (!matchesStream(params) || params.streamId !== streamId) return;
-      const p = params as { requestId?: unknown; prompt?: unknown; details?: unknown };
-      if (typeof p.requestId !== "string" || typeof p.prompt !== "string") return;
-      push({ type: "hitlBatch", requestId: p.requestId, prompt: p.prompt, details: p.details });
+      if (streamIdResolved === undefined) {
+        early.push(run);
+        return;
+      }
+      run();
     };
 
-    ipc.onNotification("engine.streamToken", onToken);
-    ipc.onNotification("engine.streamDone", onDone);
-    ipc.onNotification("engine.streamError", onError);
-    ipc.onNotification("agent.subTaskProgress", onSubTask);
-    ipc.onNotification("agent.hitlBatch", onHitl);
+  const onToken = whenMatched((params) => {
+    const text = (params as { text?: unknown }).text;
+    if (typeof text === "string") push({ type: "token", text });
+  });
+  const onDone = whenMatched((params) => {
+    const meta = (params as { meta?: { reply?: unknown; sessionId?: unknown } }).meta ?? {};
+    const reply = typeof meta.reply === "string" ? meta.reply : "";
+    const sessionId = typeof meta.sessionId === "string" ? meta.sessionId : "";
+    push({ type: "done", reply, sessionId });
+    finish();
+  });
+  const onError = whenMatched((params) => {
+    const p = params as { code?: unknown; error?: unknown };
+    const code = typeof p.code === "string" ? p.code : "stream_error";
+    const message = typeof p.error === "string" ? p.error : "Stream error";
+    push({ type: "error", code, message });
+    finish();
+  });
+  const onSubTask = whenMatched((params) => {
+    const p = params as { subTaskId?: unknown; status?: unknown; progress?: unknown };
+    if (typeof p.subTaskId !== "string" || typeof p.status !== "string") return;
+    const ev: StreamEvent =
+      typeof p.progress === "number"
+        ? {
+            type: "subTaskProgress",
+            subTaskId: p.subTaskId,
+            status: p.status,
+            progress: p.progress,
+          }
+        : { type: "subTaskProgress", subTaskId: p.subTaskId, status: p.status };
+    push(ev);
+  });
+  const onHitl = whenMatched((params) => {
+    const p = params as { requestId?: unknown; prompt?: unknown; details?: unknown };
+    if (typeof p.requestId !== "string" || typeof p.prompt !== "string") return;
+    push({ type: "hitlBatch", requestId: p.requestId, prompt: p.prompt, details: p.details });
+  });
 
-    unsubscribers.push(() => {
-      /* no-op: IPCClient has no off() yet; guarded by `done` flag */
-    });
+  // Register notification handlers *before* sending engine.askStream. The RPC
+  // response and the first stream notifications flow over the same socket and are
+  // dispatched synchronously line-by-line, so a handler attached only after the
+  // awaited response would miss tokens delivered in the same chunk.
+  const register = (method: string, handler: (p: unknown) => void): void => {
+    ipc.onNotification(method, handler);
+    unsubscribers.push(() => ipc.offNotification(method, handler));
+  };
+  register("engine.streamToken", onToken);
+  register("engine.streamDone", onDone);
+  register("engine.streamError", onError);
+  register("agent.subTaskProgress", onSubTask);
+  register("agent.hitlBatch", onHitl);
+
+  const onAbort = (): void => {
+    cancelled = true;
+    const sid = streamIdResolved;
+    if (sid !== undefined) void cancelUpstream(sid);
+    finish();
   };
 
   const startPromise = (async (): Promise<string> => {
@@ -120,27 +140,40 @@ export function createAskStream(
       throw new Error("no_stream_id");
     }
     streamIdResolved = sid;
+    // Replay notifications that arrived before the streamId was known.
+    const buffered = early;
+    early = [];
+    for (const run of buffered) run();
+    // A cancel/return that fired before the id resolved still needs to reach the
+    // gateway now that we know the streamId — check this before the `done` guard.
     if (cancelled) {
-      await ipc.call("engine.cancelStream", { streamId: sid }).catch(() => undefined);
+      await cancelUpstream(sid);
       finish();
       return sid;
     }
-    subscribe(sid);
+    if (done) return sid;
     if (opts.signal !== undefined) {
-      if (opts.signal.aborted) {
-        await ipc.call("engine.cancelStream", { streamId: sid }).catch(() => undefined);
+      const signal = opts.signal;
+      if (signal.aborted) {
+        await cancelUpstream(sid);
         finish();
       } else {
-        opts.signal.addEventListener("abort", () => {
-          void ipc.call("engine.cancelStream", { streamId: sid }).catch(() => undefined);
-          finish();
-        });
+        signal.addEventListener("abort", onAbort, { once: true });
+        unsubscribers.push(() => signal.removeEventListener("abort", onAbort));
       }
     }
     return sid;
   })();
 
-  startPromise.catch(() => {
+  startPromise.catch((err: unknown) => {
+    // A failed stream start (transport/RPC rejection) surfaces as an error event
+    // so a `for await` consumer can distinguish it from a clean empty stream.
+    // No-op if the stream already finished (e.g. the no_stream_id path above).
+    push({
+      type: "error",
+      code: "stream_start_failed",
+      message: err instanceof Error ? err.message : String(err),
+    });
     finish();
   });
 
@@ -152,9 +185,7 @@ export function createAskStream(
     async cancel(): Promise<void> {
       cancelled = true;
       const sid = streamIdResolved;
-      if (sid !== undefined) {
-        await ipc.call("engine.cancelStream", { streamId: sid }).catch(() => undefined);
-      }
+      if (sid !== undefined) await cancelUpstream(sid);
       finish();
     },
     [Symbol.asyncIterator](): AsyncIterator<StreamEvent> {
@@ -172,6 +203,10 @@ export function createAskStream(
           });
         },
         return(): Promise<IteratorResult<StreamEvent>> {
+          // Breaking out of `for await` must also tell the gateway to stop.
+          cancelled = true;
+          const sid = streamIdResolved;
+          if (sid !== undefined) void cancelUpstream(sid);
           finish();
           return Promise.resolve({ value: undefined as unknown as StreamEvent, done: true });
         },

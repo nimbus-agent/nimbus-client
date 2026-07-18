@@ -16,6 +16,19 @@ type Pending = {
   reject: (e: Error) => void;
 };
 
+/** Options for {@link IPCClient}. */
+export type IPCClientOptions = {
+  /**
+   * Per-request timeout in milliseconds. A `call()` that receives no matching
+   * response within this window rejects with a timeout error, freeing the
+   * pending slot. `0` disables the timeout (a wedged gateway then hangs the
+   * call forever — the pre-timeout behaviour). Default: 30000.
+   */
+  requestTimeoutMs?: number;
+};
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
 export function idKey(id: string | number): string {
   return typeof id === "number" ? `n:${id}` : `s:${id}`;
 }
@@ -50,9 +63,11 @@ export class IPCClient {
   private bunSocket: Awaited<ReturnType<typeof Bun.connect>> | null = null;
   private netSocket: net.Socket | null = null;
   private connected = false;
+  private readonly requestTimeoutMs: number;
 
-  constructor(socketPath: string) {
+  constructor(socketPath: string, opts?: IPCClientOptions) {
     this.socketPath = socketPath;
+    this.requestTimeoutMs = opts?.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
   async connect(): Promise<void> {
@@ -130,7 +145,12 @@ export class IPCClient {
     try {
       this.ingest(chunk);
     } catch (e) {
+      // Framing is corrupt (e.g. an over-long line). Fail every pending call and
+      // tear the socket down rather than keep reading a broken stream.
       this.failAll(e);
+      this.connected = false;
+      this.endWindowsTransport();
+      this.endUnixTransport();
     }
   }
 
@@ -160,13 +180,36 @@ export class IPCClient {
       body.params = params;
     }
     const line = `${JSON.stringify(body)}\n`;
+    const key = idKey(id);
 
     return await new Promise<T>((resolve, reject) => {
-      this.pending.set(idKey(id), {
-        resolve: (v) => resolve(v as T),
-        reject,
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const clear = (): void => {
+        if (timer !== undefined) clearTimeout(timer);
+      };
+      this.pending.set(key, {
+        resolve: (v) => {
+          clear();
+          resolve(v as T);
+        },
+        reject: (e) => {
+          clear();
+          reject(e);
+        },
       });
-      this.rawWrite(line);
+      if (this.requestTimeoutMs > 0) {
+        timer = setTimeout(() => {
+          // Only fire if still pending; the response handler deletes the entry.
+          if (this.pending.delete(key)) {
+            reject(new Error(`IPC request timed out after ${this.requestTimeoutMs}ms: ${method}`));
+          }
+        }, this.requestTimeoutMs);
+      }
+      if (!this.rawWrite(line)) {
+        this.pending.delete(key);
+        clear();
+        reject(new Error(`IPC write failed: transport not connected (${method})`));
+      }
     });
   }
 
@@ -177,6 +220,14 @@ export class IPCClient {
       this.notifHandlers.set(method, set);
     }
     set.add(handler);
+  }
+
+  /** Remove a handler previously registered with {@link onNotification}. */
+  offNotification(method: string, handler: (params: unknown) => void): void {
+    const set = this.notifHandlers.get(method);
+    if (set === undefined) return;
+    set.delete(handler);
+    if (set.size === 0) this.notifHandlers.delete(method);
   }
 
   async disconnect(): Promise<void> {
@@ -202,14 +253,17 @@ export class IPCClient {
     this.bunSocket = null;
   }
 
-  private rawWrite(s: string): void {
+  /** Write a framed line to the active transport. Returns false if no socket is available. */
+  private rawWrite(s: string): boolean {
     if (this.netSocket !== null) {
       this.netSocket.write(s);
-      return;
+      return true;
     }
     if (this.bunSocket !== null) {
       this.bunSocket.write(s);
+      return true;
     }
+    return false;
   }
 
   private ingest(chunk: Uint8Array): void {

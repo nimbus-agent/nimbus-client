@@ -15,10 +15,18 @@ concurrency:
 
 jobs:
   build-test:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Exercise both transport legs: the Unix-socket path on Linux/macOS and
+        # the Windows named-pipe path on Windows.
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
+      # harden-runner only supports Linux runners; skip it on Windows/macOS.
       - name: Harden Runner
+        if: runner.os == 'Linux'
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: block
@@ -29,6 +37,7 @@ jobs:
             objects.githubusercontent.com:443
             release-assets.githubusercontent.com:443
             registry.npmjs.org:443
+            nodejs.org:443
             bun.sh:443
 
       - name: Checkout
@@ -39,7 +48,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
 
       - name: Install
         run: bun install --frozen-lockfile
@@ -59,3 +68,17 @@ jobs:
         run: bun run test
         env:
           CI: "true"
+
+      # Validate the bundled CJS entry that `require` consumers (the Nimbus CLI,
+      # nimbus-vscode) actually load — CI otherwise only runs code under Bun.
+      - name: Setup Node (CJS require smoke)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Smoke-test the CJS bundle under Node
+        run: >
+          node -e "const m = require('./dist/index.cjs');
+          for (const k of ['NimbusClient','MockClient','IPCClient','IpcResponseError']) {
+          if (typeof m[k] === 'undefined') throw new Error('CJS export missing: ' + k); }
+          console.log('CJS require OK');"

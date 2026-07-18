@@ -722,3 +722,108 @@ describe("IPCClient dispatch internals (no socket)", () => {
     expect(ic.pending.size).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// IPCClient — offNotification, request timeout, and write-failure handling
+// (socket-free, so these run cross-platform including on Windows).
+// ---------------------------------------------------------------------------
+
+describe("IPCClient offNotification", () => {
+  type Dispatchable = {
+    dispatchNotificationLine: (o: Record<string, unknown>) => void;
+    notifHandlers: Map<string, Set<(p: unknown) => void>>;
+  };
+  const dispatch = (c: IPCClient, method: string, params: unknown): void => {
+    (c as unknown as Dispatchable).dispatchNotificationLine({ jsonrpc: "2.0", method, params });
+  };
+
+  test("a removed handler stops receiving notifications", () => {
+    const c = new IPCClient(INTERNAL_FAKE_PATH);
+    const seen: unknown[] = [];
+    const h = (p: unknown): void => {
+      seen.push(p);
+    };
+    c.onNotification("evt", h);
+    dispatch(c, "evt", { n: 1 });
+    c.offNotification("evt", h);
+    dispatch(c, "evt", { n: 2 });
+    expect(seen).toEqual([{ n: 1 }]);
+  });
+
+  test("removing the last handler deletes the method's handler set", () => {
+    const c = new IPCClient(INTERNAL_FAKE_PATH);
+    const h = (): void => undefined;
+    c.onNotification("evt", h);
+    c.offNotification("evt", h);
+    expect((c as unknown as Dispatchable).notifHandlers.has("evt")).toBe(false);
+  });
+
+  test("offNotification for an unknown method is a no-op", () => {
+    const c = new IPCClient(INTERNAL_FAKE_PATH);
+    expect(() => c.offNotification("never-registered", () => undefined)).not.toThrow();
+  });
+
+  test("removing one of several handlers leaves the others attached", () => {
+    const c = new IPCClient(INTERNAL_FAKE_PATH);
+    const a: unknown[] = [];
+    const b: unknown[] = [];
+    const ha = (p: unknown): void => {
+      a.push(p);
+    };
+    const hb = (p: unknown): void => {
+      b.push(p);
+    };
+    c.onNotification("evt", ha);
+    c.onNotification("evt", hb);
+    c.offNotification("evt", ha);
+    dispatch(c, "evt", { v: 1 });
+    expect(a).toEqual([]);
+    expect(b).toEqual([{ v: 1 }]);
+  });
+});
+
+describe("IPCClient.call timeout + write failure", () => {
+  type Connectable = {
+    connected: boolean;
+    netSocket: { write: (s: string) => void; end: () => void } | null;
+  };
+
+  test("call() rejects when the request timeout elapses with no response", async () => {
+    const c = new IPCClient(INTERNAL_FAKE_PATH, { requestTimeoutMs: 30 });
+    const ic = c as unknown as Connectable;
+    ic.connected = true;
+    ic.netSocket = { write: () => undefined, end: () => undefined };
+    await expect(c.call("hang", {})).rejects.toThrow(/timed out after 30ms/);
+  });
+
+  test("call() rejects immediately when the transport has no socket to write to", async () => {
+    const c = new IPCClient(INTERNAL_FAKE_PATH);
+    const ic = c as unknown as Connectable;
+    // Report connected but leave both sockets null — rawWrite cannot send.
+    ic.connected = true;
+    await expect(c.call("orphan", {})).rejects.toThrow(/write failed/);
+  });
+
+  test("requestTimeoutMs: 0 disables the timeout (call stays pending)", async () => {
+    const c = new IPCClient(INTERNAL_FAKE_PATH, { requestTimeoutMs: 0 });
+    const ic = c as unknown as Connectable;
+    ic.connected = true;
+    ic.netSocket = { write: () => undefined, end: () => undefined };
+    const pending = c.call("hang", {});
+    // Attach a handler so the eventual rejection (from disconnect) isn't unhandled.
+    const settled = pending.then(
+      () => "resolved",
+      () => "rejected",
+    );
+    const race = await Promise.race([
+      settled,
+      new Promise<string>((r) => {
+        setTimeout(() => r("still-pending"), 80);
+      }),
+    ]);
+    expect(race).toBe("still-pending");
+    // Clean up: settle the still-pending call so nothing dangles after the test.
+    await c.disconnect();
+    expect(await settled).toBe("rejected");
+  });
+});
