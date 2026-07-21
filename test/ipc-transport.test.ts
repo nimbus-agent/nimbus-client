@@ -124,7 +124,7 @@ describe("IPCClient", () => {
     });
     const c = new IPCClient(socketPath);
     await c.connect();
-    expect(await c.call("ping", { a: 1 })).toEqual({ echoed: "ping" });
+    expect(await c.call<{ echoed: string }>("ping", { a: 1 })).toEqual({ echoed: "ping" });
     await c.disconnect();
   });
 

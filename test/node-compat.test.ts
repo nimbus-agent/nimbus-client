@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-const GATEWAY_BIN = process.env.NIMBUS_GATEWAY_BIN;
+const GATEWAY_BIN = process.env["NIMBUS_GATEWAY_BIN"];
 const STARTUP_TIMEOUT_MS = 60_000;
 const STREAM_TIMEOUT_MS = 30_000;
 const NODE_TEST_TIMEOUT_MS = 120_000;
@@ -176,10 +176,10 @@ if (GATEWAY_BIN === undefined) {
     const { proc, socketPath } = await spawnGateway(dataDir);
     try {
       const client = await NimbusClient.open({ socketPath });
-      let _received = false;
-      const sub = client.subscribeHitl(() => {
-        _received = true;
-      });
+      // No flag is captured: the Gateway does not fire HITL on a passive socket,
+      // so anything this callback recorded would always read false and assert
+      // nothing. The subscription wiring is what is under test.
+      const sub = client.subscribeHitl(() => {});
       // The Gateway in test mode does not naturally fire HITL on a passive
       // socket connection; this test only asserts the subscription wires up
       // without throwing. A full HITL roundtrip is covered by the integration

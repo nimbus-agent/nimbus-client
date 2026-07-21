@@ -35,36 +35,36 @@ describe("getNimbusPaths per platform", () => {
 
   test("win32 throws when APPDATA missing", () => {
     setPlatform("win32");
-    delete process.env.APPDATA;
-    process.env.LOCALAPPDATA = String.raw`C:\Users\u\AppData\Local`;
+    delete process.env["APPDATA"];
+    process.env["LOCALAPPDATA"] = String.raw`C:\Users\u\AppData\Local`;
     expect(() => getNimbusPaths()).toThrow(/APPDATA/);
   });
 
   test("win32 throws when LOCALAPPDATA missing", () => {
     setPlatform("win32");
-    process.env.APPDATA = String.raw`C:\Users\u\AppData\Roaming`;
-    delete process.env.LOCALAPPDATA;
+    process.env["APPDATA"] = String.raw`C:\Users\u\AppData\Roaming`;
+    delete process.env["LOCALAPPDATA"];
     expect(() => getNimbusPaths()).toThrow(/LOCALAPPDATA/);
   });
 
   test("win32 returns named pipe socketPath", () => {
     setPlatform("win32");
-    process.env.APPDATA = String.raw`C:\Users\u\AppData\Roaming`;
-    process.env.LOCALAPPDATA = String.raw`C:\Users\u\AppData\Local`;
+    process.env["APPDATA"] = String.raw`C:\Users\u\AppData\Roaming`;
+    process.env["LOCALAPPDATA"] = String.raw`C:\Users\u\AppData\Local`;
     const p = getNimbusPaths();
     expect(p.socketPath).toBe(String.raw`\\.\pipe\nimbus-gateway`);
   });
 
   test("darwin honors TMPDIR for socketPath", () => {
     setPlatform("darwin");
-    process.env.TMPDIR = "/synthetic-tmpdir-test/";
+    process.env["TMPDIR"] = "/synthetic-tmpdir-test/";
     const p = getNimbusPaths();
     expect(p.socketPath).toBe("/synthetic-tmpdir-test/nimbus-gateway.sock");
   });
 
   test("linux honors XDG_RUNTIME_DIR", () => {
     setPlatform("linux");
-    process.env.XDG_RUNTIME_DIR = "/run/user/1000";
+    process.env["XDG_RUNTIME_DIR"] = "/run/user/1000";
     const p = getNimbusPaths();
     expect(p.socketPath).toBe("/run/user/1000/nimbus-gateway.sock");
   });
