@@ -48,11 +48,22 @@ describe("validate — happy paths", () => {
     expect(t.turns[0]).toEqual({ role: "user", text: "hi", timestamp: 1, auditLogId: 9 });
   });
 
-  test("validateQueryItems accepts items + meta", () => {
-    expect(validateQueryItems("m", { items: [{ a: 1 }], meta: { limit: 1, total: 1 } })).toEqual({
-      items: [{ a: 1 }],
+  test("validateQueryItems accepts a camelCase indexed item", () => {
+    expect(
+      validateQueryItems("m", {
+        items: [{ id: "s1", indexPrimaryKey: "s:s1", service: "s", itemType: "alert", name: "n" }],
+        meta: { limit: 1, total: 1 },
+      }),
+    ).toEqual({
+      items: [{ id: "s1", indexPrimaryKey: "s:s1", service: "s", itemType: "alert", name: "n" }],
       meta: { limit: 1, total: 1 },
     });
+  });
+
+  test("validateQueryItems rejects a row that is not an indexed item", () => {
+    expect(() =>
+      validateQueryItems("m", { items: [{ a: 1 }], meta: { limit: 1, total: 1 } }),
+    ).toThrow(IpcResponseError);
   });
 
   test("validateRankedItems accepts rows with the ranking fields", () => {

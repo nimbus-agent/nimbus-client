@@ -8,6 +8,7 @@ describe("MockClient", () => {
       items: [
         {
           id: "1",
+          indexPrimaryKey: "github:1",
           service: "github",
           itemType: "file",
           name: "Demo",

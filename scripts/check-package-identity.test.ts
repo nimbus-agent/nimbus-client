@@ -7,7 +7,10 @@ test("package identity is standalone nimbus-client", () => {
   expect(pkg.license).toBe("MIT");
   expect(pkg.repository.url).toBe("git+https://github.com/nimbus-agent/nimbus-client.git");
   expect((pkg.repository as Record<string, unknown>).directory).toBeUndefined();
-  expect(pkg.dependencies["@nimbus-dev/sdk"]).toBe("^1.3.0");
+  // 1.4.0 is the floor, not a preference: it is the release that made ItemType
+  // an open enum. Against 1.3.0's closed 6-value union, validateQueryItems
+  // cannot return a NimbusItem whose itemType came off the wire as a string.
+  expect(pkg.dependencies["@nimbus-dev/sdk"]).toBe("^1.4.0");
 });
 
 test("package.json version tracks the release-please manifest baseline", () => {

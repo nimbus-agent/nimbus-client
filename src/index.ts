@@ -2,6 +2,9 @@
  * @nimbus-dev/client — MIT local Gateway client (IPC).
  */
 
+// Re-exported so consumers (nimbus-vscode) can name the item shape without
+// taking a direct dependency on @nimbus-dev/sdk.
+export type { NimbusItem } from "@nimbus-dev/sdk";
 export {
   discoverSocketPath,
   type GatewayStateFile,
@@ -21,6 +24,7 @@ export {
   type EgressReceipt,
   type EgressRow,
   type EgressVerifyResult,
+  type IndexedItem,
   NimbusClient,
   type NimbusClientLike,
   type NimbusClientOptions,

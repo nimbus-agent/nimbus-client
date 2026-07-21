@@ -44,6 +44,14 @@ export type RankedSearchParams = {
 };
 
 /**
+ * An indexed item as `index.queryItems` returns it: a NimbusItem plus the
+ * gateway's composite index key (`service:external_id`). `NimbusItem.id` is the
+ * bare external id and is not unique across services, so use `indexPrimaryKey`
+ * for identity. Mirrors {@link RankedSearchItem}.
+ */
+export type IndexedItem = NimbusItem & { indexPrimaryKey: string };
+
+/**
  * A ranked index hit: a {@link NimbusItem} enriched with ranking metadata.
  * Mirrors the Gateway's `index.searchRanked` result shape.
  */
@@ -177,7 +185,7 @@ export interface NimbusClientLike {
     sinceMs?: number;
     untilMs?: number;
     limit?: number;
-  }): Promise<{ items: Record<string, unknown>[]; meta: { limit: number; total: number } }>;
+  }): Promise<{ items: IndexedItem[]; meta: { limit: number; total: number } }>;
   searchRanked(params?: RankedSearchParams): Promise<RankedSearchItem[]>;
   querySql(sql: string): Promise<{ rows: Record<string, unknown>[] }>;
   auditList(limit?: number): Promise<unknown[]>;
@@ -266,7 +274,7 @@ export class NimbusClient implements NimbusClientLike {
     sinceMs?: number;
     untilMs?: number;
     limit?: number;
-  }): Promise<{ items: Record<string, unknown>[]; meta: { limit: number; total: number } }> {
+  }): Promise<{ items: IndexedItem[]; meta: { limit: number; total: number } }> {
     const raw = await this.ipc.call("index.queryItems", {
       services: params.services,
       types: params.types,

@@ -1,5 +1,3 @@
-import type { NimbusItem } from "@nimbus-dev/sdk";
-
 import type {
   EgressHead,
   EgressListParams,
@@ -8,6 +6,7 @@ import type {
   EgressProveWindowResult,
   EgressRow,
   EgressVerifyResult,
+  IndexedItem,
   NimbusClientLike,
   RankedSearchItem,
   RankedSearchParams,
@@ -21,7 +20,7 @@ import type {
 } from "./stream-events.js";
 
 export type MockClientFixtures = {
-  items?: NimbusItem[];
+  items?: IndexedItem[];
   rankedItems?: RankedSearchItem[];
   streamTokens?: string[];
   reply?: string;
@@ -105,8 +104,8 @@ export class MockClient implements NimbusClientLike {
     sinceMs?: number;
     untilMs?: number;
     limit?: number;
-  }): Promise<{ items: Record<string, unknown>[]; meta: { limit: number; total: number } }> {
-    const items = (this.fixtures.items ?? []) as unknown as Record<string, unknown>[];
+  }): Promise<{ items: IndexedItem[]; meta: { limit: number; total: number } }> {
+    const items = this.fixtures.items ?? [];
     return { items, meta: { limit: items.length, total: items.length } };
   }
 
