@@ -17,6 +17,7 @@ import type {
   EgressReceipt,
   EgressRow,
   EgressVerifyResult,
+  IndexedItem,
   RankedSearchItem,
   SessionTranscript,
 } from "./nimbus-client.js";
@@ -63,6 +64,16 @@ function arr(method: string, v: unknown): unknown[] {
   return v;
 }
 
+function optStr(o: Record<string, unknown>, key: string): string | undefined {
+  const v = o[key];
+  return typeof v === "string" ? v : undefined;
+}
+
+function optNum(o: Record<string, unknown>, key: string): number | undefined {
+  const v = o[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
 /** `{ reply?: string } & Record<string, unknown>` — result of `agent.invoke`. */
 export function validateAgentInvoke(
   method: string,
@@ -100,12 +111,46 @@ export function validateSessionTranscript(method: string, v: unknown): SessionTr
   return { sessionId: str(method, o, "sessionId"), turns, hasMore: bool(method, o, "hasMore") };
 }
 
+/**
+ * The gateway maps V3 rows through rowToItem before answering
+ * index.queryItems, so the wire is already camelCase NimbusItem plus
+ * indexPrimaryKey. This validates that shape — it does NOT translate one.
+ * Key translation belongs in the gateway, where the mapping already exists;
+ * a second copy here is what drifted last time.
+ *
+ * `itemType` passes through verbatim: ItemType is an open enum, and rewriting
+ * an unrecognised type would be data corruption.
+ */
 export function validateQueryItems(
   method: string,
   v: unknown,
-): { items: Record<string, unknown>[]; meta: { limit: number; total: number } } {
+): { items: IndexedItem[]; meta: { limit: number; total: number } } {
   const o = record(method, v);
-  const items = arr(method, o["items"]).map((it) => record(method, it));
+
+  const items = arr(method, o["items"]).map((raw): IndexedItem => {
+    const r = record(method, raw);
+    const item: IndexedItem = {
+      id: str(method, r, "id"),
+      indexPrimaryKey: str(method, r, "indexPrimaryKey"),
+      service: str(method, r, "service"),
+      itemType: str(method, r, "itemType"),
+      name: str(method, r, "name"),
+    };
+    const mimeType = optStr(r, "mimeType");
+    if (mimeType !== undefined) item.mimeType = mimeType;
+    const sizeBytes = optNum(r, "sizeBytes");
+    if (sizeBytes !== undefined) item.sizeBytes = sizeBytes;
+    const createdAt = optNum(r, "createdAt");
+    if (createdAt !== undefined) item.createdAt = createdAt;
+    const modifiedAt = optNum(r, "modifiedAt");
+    if (modifiedAt !== undefined) item.modifiedAt = modifiedAt;
+    const url = optStr(r, "url");
+    if (url !== undefined) item.url = url;
+    const parentId = optStr(r, "parentId");
+    if (parentId !== undefined) item.parentId = parentId;
+    return item;
+  });
+
   const meta = record(method, o["meta"]);
   return { items, meta: { limit: num(method, meta, "limit"), total: num(method, meta, "total") } };
 }

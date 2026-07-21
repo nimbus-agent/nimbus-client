@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { NimbusClient } from "../src/nimbus-client.ts";
 import type { HitlRequest } from "../src/stream-events.ts";
+import { IpcResponseError } from "../src/validate.ts";
 
 type CallSpy = { method: string; params: unknown };
 
@@ -199,5 +200,104 @@ describe("NimbusClient method dispatch", () => {
     };
     await makeClient(ipc).close();
     expect(disconnected).toBe(true);
+  });
+});
+
+describe("queryItems result validation", () => {
+  test("returns the gateway's camelCase item verbatim", async () => {
+    const ipc = new FakeIpc([
+      {
+        items: [
+          {
+            id: "run-1",
+            indexPrimaryKey: "github:run-1",
+            service: "github",
+            itemType: "ci_run",
+            name: "nightly build",
+            modifiedAt: 1_700_000_000_000,
+            createdAt: 1_600_000_000_000,
+            url: "https://example.test/r/1",
+            mimeType: "application/json",
+            sizeBytes: 12,
+            parentId: "github:wf-9",
+          },
+        ],
+        meta: { limit: 50, total: 1 },
+      },
+    ]);
+
+    const { items, meta } = await makeClient(ipc).queryItems({ limit: 50 });
+
+    expect(items[0]).toEqual({
+      id: "run-1",
+      indexPrimaryKey: "github:run-1",
+      service: "github",
+      itemType: "ci_run",
+      name: "nightly build",
+      mimeType: "application/json",
+      sizeBytes: 12,
+      createdAt: 1_600_000_000_000,
+      modifiedAt: 1_700_000_000_000,
+      url: "https://example.test/r/1",
+      parentId: "github:wf-9",
+    });
+    expect(meta).toEqual({ limit: 50, total: 1 });
+  });
+
+  test("omits optional fields the item does not carry", async () => {
+    const ipc = new FakeIpc([
+      {
+        items: [{ id: "x1", indexPrimaryKey: "x:x1", service: "x", itemType: "file", name: "n" }],
+        meta: { limit: 1, total: 1 },
+      },
+    ]);
+    const { items } = await makeClient(ipc).queryItems({});
+    expect(items[0]).toEqual({
+      id: "x1",
+      indexPrimaryKey: "x:x1",
+      service: "x",
+      itemType: "file",
+      name: "n",
+    });
+  });
+
+  test("preserves an item type this client version does not know", async () => {
+    const ipc = new FakeIpc([
+      {
+        items: [
+          { id: "x1", indexPrimaryKey: "x:x1", service: "x", itemType: "dora_metric", name: "n" },
+        ],
+        meta: { limit: 1, total: 1 },
+      },
+    ]);
+    const { items } = await makeClient(ipc).queryItems({});
+    expect(items[0]?.itemType).toBe("dora_metric");
+  });
+
+  test("throws IpcResponseError when items is not an array", async () => {
+    const ipc = new FakeIpc([{ items: "nope", meta: { limit: 0, total: 0 } }]);
+    await expect(makeClient(ipc).queryItems({})).rejects.toBeInstanceOf(IpcResponseError);
+  });
+
+  test("throws IpcResponseError when indexPrimaryKey is missing", async () => {
+    const ipc = new FakeIpc([
+      {
+        items: [{ id: "x1", service: "x", itemType: "file", name: "n" }],
+        meta: { limit: 1, total: 1 },
+      },
+    ]);
+    await expect(makeClient(ipc).queryItems({})).rejects.toBeInstanceOf(IpcResponseError);
+  });
+
+  test("throws IpcResponseError on a snake_case row from an old gateway", async () => {
+    // Version skew: client 0.6.0 against a pre-Task-2 gateway. Failing loudly
+    // is intended — the alternative is silently undefined fields.
+    const ipc = new FakeIpc([
+      {
+        items: [{ id: "github:run-1", service: "github", type: "ci_run", title: "nightly" }],
+        meta: { limit: 1, total: 1 },
+      },
+    ]);
+    await expect(makeClient(ipc).queryItems({})).rejects.toBeInstanceOf(IpcResponseError);
   });
 });
