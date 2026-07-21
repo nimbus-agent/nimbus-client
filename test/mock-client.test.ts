@@ -55,7 +55,9 @@ describe("MockClient", () => {
 
   test("getSessionTranscript / cancelStream / querySql / auditList / close", async () => {
     const c = new MockClient();
-    expect((await c.getSessionTranscript()).sessionId).toBe("mock-session");
+    // sessionId is required by the interface; the mock ignores it and always
+    // answers "mock-session", so passing one changes nothing at runtime.
+    expect((await c.getSessionTranscript({ sessionId: "s1" })).sessionId).toBe("mock-session");
     expect(await c.cancelStream()).toEqual({ ok: true });
     expect(await c.querySql("SELECT 1")).toEqual({ rows: [] });
     expect(await c.auditList()).toEqual([]);

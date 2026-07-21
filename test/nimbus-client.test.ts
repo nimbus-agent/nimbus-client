@@ -98,7 +98,18 @@ describe("NimbusClient method dispatch", () => {
   });
 
   test("searchRanked routes to index.searchRanked and returns the rows", async () => {
-    const row = { id: "x", score: 1, indexPrimaryKey: "pk-x", indexedType: "file" };
+    // A RankedSearchItem is a NimbusItem plus ranking fields, so the base item
+    // fields are required. They were absent while tests went untypechecked;
+    // validateRankedItems casts, so only the compiler could have caught it.
+    const row = {
+      id: "x",
+      service: "drive",
+      itemType: "file",
+      name: "x",
+      score: 1,
+      indexPrimaryKey: "pk-x",
+      indexedType: "file",
+    };
     const ipc = new FakeIpc([[row]]);
     const out = await makeClient(ipc).searchRanked({
       name: "plan",

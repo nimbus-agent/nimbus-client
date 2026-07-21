@@ -76,7 +76,7 @@ describe("transport end-to-end (named pipe / Windows)", () => {
     try {
       const c = new IPCClient(path);
       await c.connect();
-      expect(await c.call("ping", { a: 1 })).toEqual({ echoed: "ping" });
+      expect(await c.call<{ echoed: string }>("ping", { a: 1 })).toEqual({ echoed: "ping" });
       await c.disconnect();
     } finally {
       await new Promise<void>((r) => server.close(() => r()));

@@ -3,5 +3,9 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["src/**/*", "test/**/*", "scripts/**/*"]
+  "include": ["src/**/*", "test/**/*", "scripts/**/*"],
+  // The base config excludes **/*.test.ts. `exclude` filters `include`, so
+  // inheriting it made this config — whose entire purpose is typechecking the
+  // tests — compile zero test files. Verified with `tsc --listFiles`.
+  "exclude": ["node_modules", "dist", "coverage"]
 }
