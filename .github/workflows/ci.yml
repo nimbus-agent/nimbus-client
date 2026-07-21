@@ -53,16 +53,20 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
+      # Build first: node-compat.test.ts imports `../dist/index.js`, so dist has
+      # to exist before both Typecheck and Test. Building before Test alone used
+      # to be enough, because tsconfig.test.json silently excluded every test
+      # file — now that it genuinely typechecks them, Typecheck resolves that
+      # import too and fails without dist. `bun run build` does not typecheck,
+      # so nothing is lost by running it first.
+      - name: Build
+        run: bun run build
+
       - name: Typecheck
         run: bun run typecheck
 
       - name: Lint
         run: bun run lint
-
-      # Build before Test: node-compat.test.ts imports ../dist when a gateway
-      # binary is provided; build first so dist output exists.
-      - name: Build
-        run: bun run build
 
       - name: Test
         run: bun run test
