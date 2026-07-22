@@ -43,6 +43,12 @@ jobs:
           repositories: nimbus-client
           permission-contents: write
           permission-pull-requests: write
+          # release-please's own docs list issues:write, because it needs it to
+          # CREATE the autorelease:* label definitions. Applying an existing
+          # label to the release PR is covered by pull-requests, so this is not
+          # strictly required today (the labels already exist here), but the App
+          # grants issues:write and this future-proofs a fresh label operation.
+          permission-issues: write
 
       - id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
