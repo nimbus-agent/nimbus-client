@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   IpcResponseError,
   validateAgentInvoke,
+  validateAgentSession,
   validateAuditList,
   validateEgressHead,
   validateEgressList,
@@ -150,5 +151,21 @@ describe("validate — rejections throw IpcResponseError", () => {
     expect(() => validateEgressList("m", { rows: [{ ...ROW, sourceId: 7 }] })).toThrow(
       /"sourceId" must be a string or null/,
     );
+  });
+});
+
+describe("validateAgentSession", () => {
+  test("accepts a well-formed session envelope", () => {
+    expect(validateAgentSession("agents.expert", { sessionId: "expert_1_ab" })).toEqual({
+      sessionId: "expert_1_ab",
+    });
+  });
+
+  test("rejects a missing sessionId", () => {
+    expect(() => validateAgentSession("agents.expert", {})).toThrow(IpcResponseError);
+  });
+
+  test("rejects a non-object", () => {
+    expect(() => validateAgentSession("agents.expert", "nope")).toThrow(IpcResponseError);
   });
 });

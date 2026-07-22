@@ -245,3 +245,9 @@ export function validateEgressProveWindow(method: string, v: unknown): EgressPro
   if (o["receipt"] !== undefined) result.receipt = validateEgressReceipt(method, o["receipt"]);
   return result;
 }
+
+/** `{ sessionId: string }` — the synchronous return of every `agents.*` method. */
+export function validateAgentSession(method: string, v: unknown): { sessionId: string } {
+  const o = record(method, v);
+  return { sessionId: str(method, o, "sessionId") };
+}
