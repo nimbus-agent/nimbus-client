@@ -1,0 +1,54 @@
+{
+  "items": [
+    {
+      "id": "msg-1001",
+      "service": "gmail",
+      "itemType": "email",
+      "name": "Q3 planning notes",
+      "modifiedAt": 1700000005000,
+      "url": "https://mail.example.test/msg-1001",
+      "indexPrimaryKey": "gmail:msg-1001"
+    },
+    {
+      "id": "owner/repo/runs/42",
+      "service": "github",
+      "itemType": "ci_run",
+      "name": "CI run #42 — main",
+      "modifiedAt": 1700000004000,
+      "url": "https://github.test/owner/repo/actions/runs/42",
+      "indexPrimaryKey": "github:owner/repo/runs/42"
+    },
+    {
+      "id": "owner/repo#128",
+      "service": "github",
+      "itemType": "pr",
+      "name": "PR #128 — wire up the widget",
+      "modifiedAt": 1700000003000,
+      "url": "https://github.test/owner/repo/pull/128",
+      "indexPrimaryKey": "github:owner/repo#128"
+    },
+    {
+      "id": "1AbCdEf",
+      "service": "gdrive",
+      "itemType": "file",
+      "name": "roadmap.pdf",
+      "modifiedAt": 1700000002000,
+      "url": "https://drive.example.test/1AbCdEf",
+      "mimeType": "application/pdf",
+      "sizeBytes": 88214,
+      "indexPrimaryKey": "gdrive:1AbCdEf"
+    },
+    {
+      "id": "0FolderXyz",
+      "service": "gdrive",
+      "itemType": "folder",
+      "name": "Design",
+      "modifiedAt": 1700000001000,
+      "indexPrimaryKey": "gdrive:0FolderXyz"
+    }
+  ],
+  "meta": {
+    "limit": 5,
+    "total": 5
+  }
+}
