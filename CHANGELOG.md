@@ -2,6 +2,22 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.6.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.5.0...client-v0.6.0) (2026-07-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* queryItems returns validated IndexedItem[] instead of raw rows ([#6](https://github.com/nimbus-agent/nimbus-client/issues/6))
+
+### Features
+
+* queryItems returns validated IndexedItem[] instead of raw rows ([#6](https://github.com/nimbus-agent/nimbus-client/issues/6)) ([8e373d0](https://github.com/nimbus-agent/nimbus-client/commit/8e373d0bea6e207641fbdb5782a677ff44b57ce5))
+
+
+### Bug Fixes
+
+* **ci:** mint release-please token from the App, and keep 0.x pre-1.0 ([#8](https://github.com/nimbus-agent/nimbus-client/issues/8)) ([d21fb0b](https://github.com/nimbus-agent/nimbus-client/commit/d21fb0bc5c4934d62c734f7ae98e04fd67182b2a))
+
 ## [0.5.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.4.0...client-v0.5.0) (2026-07-16)
 
 
