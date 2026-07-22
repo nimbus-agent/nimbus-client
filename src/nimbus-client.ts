@@ -1,11 +1,31 @@
-import type { AgentName, BriefFor, NimbusItem } from "@nimbus-dev/sdk";
+import type {
+  AgentName,
+  BriefFor,
+  CatchupBrief,
+  ConflictBrief,
+  ExpertBrief,
+  GhostBrief,
+  HuddleBrief,
+  ImpactBrief,
+  JanitorBrief,
+  NimbusItem,
+  PreflightBrief,
+} from "@nimbus-dev/sdk";
 
 import {
   AgentBriefError,
   type AgentBriefEvent,
   type AgentParamsFor,
   AgentTimeoutError,
+  type CatchupParams,
+  type ConflictsParams,
   DEFAULT_AGENT_TIMEOUT_MS,
+  type ExpertParams,
+  type GhostParams,
+  type HuddleParams,
+  type ImpactParams,
+  type JanitorParams,
+  type PreflightParams,
   parseBriefError,
   parseBriefReady,
 } from "./agents.js";
@@ -207,6 +227,14 @@ export interface NimbusClientLike {
   egressList(params?: EgressListParams): Promise<EgressListResult>;
   egressVerify(): Promise<EgressVerifyResult>;
   egressProveWindow(params?: EgressProveWindowParams): Promise<EgressProveWindowResult>;
+  agentsExpert(p: ExpertParams, o?: { timeoutMs?: number }): Promise<ExpertBrief>;
+  agentsImpact(p: ImpactParams, o?: { timeoutMs?: number }): Promise<ImpactBrief>;
+  agentsCatchup(p?: CatchupParams, o?: { timeoutMs?: number }): Promise<CatchupBrief>;
+  agentsGhost(p: GhostParams, o?: { timeoutMs?: number }): Promise<GhostBrief>;
+  agentsConflicts(p: ConflictsParams, o?: { timeoutMs?: number }): Promise<ConflictBrief>;
+  agentsHuddle(p?: HuddleParams, o?: { timeoutMs?: number }): Promise<HuddleBrief>;
+  agentsJanitor(p: JanitorParams, o?: { timeoutMs?: number }): Promise<JanitorBrief>;
+  agentsPreflight(p: PreflightParams, o?: { timeoutMs?: number }): Promise<PreflightBrief>;
   close(): Promise<void>;
 }
 
@@ -309,8 +337,6 @@ export class NimbusClient implements NimbusClientLike {
    * drain the buffer. Without the buffer a fast agent's notification is
    * dropped; without the sessionId filter two concurrent runs swap results.
    */
-  // @ts-expect-error -- unused until the eight public agentsX methods (Task 10) call it.
-  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: same — wired up in Task 10.
   private async runAgent<A extends AgentName>(
     agent: A,
     params: AgentParamsFor<A>,
@@ -354,6 +380,31 @@ export class NimbusClient implements NimbusClientLike {
       if (timer !== undefined) clearTimeout(timer);
       sub.dispose();
     }
+  }
+
+  agentsExpert(p: ExpertParams, o?: { timeoutMs?: number }): Promise<ExpertBrief> {
+    return this.runAgent("expert", p, o);
+  }
+  agentsImpact(p: ImpactParams, o?: { timeoutMs?: number }): Promise<ImpactBrief> {
+    return this.runAgent("impact", p, o);
+  }
+  agentsCatchup(p?: CatchupParams, o?: { timeoutMs?: number }): Promise<CatchupBrief> {
+    return this.runAgent("catchup", p ?? {}, o);
+  }
+  agentsGhost(p: GhostParams, o?: { timeoutMs?: number }): Promise<GhostBrief> {
+    return this.runAgent("ghost", p, o);
+  }
+  agentsConflicts(p: ConflictsParams, o?: { timeoutMs?: number }): Promise<ConflictBrief> {
+    return this.runAgent("conflicts", p, o);
+  }
+  agentsHuddle(p?: HuddleParams, o?: { timeoutMs?: number }): Promise<HuddleBrief> {
+    return this.runAgent("huddle", p ?? {}, o);
+  }
+  agentsJanitor(p: JanitorParams, o?: { timeoutMs?: number }): Promise<JanitorBrief> {
+    return this.runAgent("janitor", p, o);
+  }
+  agentsPreflight(p: PreflightParams, o?: { timeoutMs?: number }): Promise<PreflightBrief> {
+    return this.runAgent("preflight", p, o);
   }
 
   async getSessionTranscript(params: {
