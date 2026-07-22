@@ -157,19 +157,28 @@ jobs:
           tmp="$(mktemp -d)"
           cd "$tmp"
           npm init -y >/dev/null
-          # The registry serves a fresh publish with a short propagation lag;
-          # retry so a few seconds of lag is not read as a supply-chain failure.
+          # The registry serves a fresh publish with a short propagation lag, and
+          # the ATTESTATION endpoint lags SEPARATELY from the tarball — the tarball
+          # can be installable while `.../attestations/...` still 404s. So install
+          # and `npm audit signatures` must retry TOGETHER: a loop that breaks on
+          # install alone and then runs the audit once reads attestation lag as a
+          # supply-chain failure. (That shipped 0.6.0's publish job red even though
+          # the package was live and correctly attested.)
+          verified=""
           for attempt in 1 2 3 4 5; do
-            if npm install "@nimbus-dev/client@${PUBLISHED_VERSION}" --no-audit --no-fund; then
+            if npm install "@nimbus-dev/client@${PUBLISHED_VERSION}" --no-audit --no-fund \
+              && npm audit signatures; then
+              verified=1
               break
             fi
-            if [ "$attempt" = 5 ]; then
-              echo "::error::@nimbus-dev/client@${PUBLISHED_VERSION} was not installable from the registry after 5 attempts."
-              exit 1
+            if [ "$attempt" != 5 ]; then
+              sleep $(( attempt * 5 ))
             fi
-            sleep $(( attempt * 5 ))
           done
-          npm audit signatures
+          if [ -z "$verified" ]; then
+            echo "::error::@nimbus-dev/client@${PUBLISHED_VERSION} could not be installed and signature-verified from the registry after 5 attempts."
+            exit 1
+          fi
 
       - name: Verify provenance names this repo, workflow and commit
         uses: nimbus-agent/.github/actions/verify-npm-provenance@5fb42792fa88287048fd24f704183b9a9b807a67
