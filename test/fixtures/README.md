@@ -36,3 +36,18 @@ Values may be redacted or synthetic; **keys and types are never edited**. When
 the conformance test fails, re-capture from a current gateway (or re-run the
 capture path against current `main`) and fix the validator to match — do not edit
 this file to make the test pass.
+
+## `agent-briefs.json`
+
+Golden `<agent>.briefReady` payloads for all eight `agents.*` methods, consumed
+by `test/agents-conformance.test.ts`.
+
+**Regenerate from the Nimbus repo — never edit by hand:**
+
+```bash
+bun run scripts/gen-agent-brief-fixtures.ts > agent-briefs.json
+cp agent-briefs.json ../nimbus-client/test/fixtures/agent-briefs.json
+```
+
+The generator drives the real `dispatchAgentsRpc` → `emitBriefWithSynthesis`
+path against an in-memory index, so the shape comes from gateway code.
