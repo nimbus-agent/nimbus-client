@@ -149,4 +149,89 @@ describe("MockClient", () => {
   test("an unconfigured agent rejects with a named reason", async () => {
     await expect(new MockClient().agentsGhost({ file: "a" })).rejects.toThrow("agentBriefs.ghost");
   });
+
+  test("consentRespond always resolves ok (no HITL loop in-memory)", async () => {
+    expect(await new MockClient().consentRespond({ requestId: "r1", approved: true })).toEqual({
+      ok: true,
+    });
+  });
+
+  test("diagnostics methods return safe defaults without fixtures", async () => {
+    const c = new MockClient();
+    const ping = await c.gatewayPing();
+    expect(ping.version).toBe("mock");
+    expect(ping.drift).toBeUndefined();
+    expect(await c.diagGetVersion()).toEqual({
+      version: "mock",
+      commit: null,
+      buildId: null,
+      uptimeMs: 0,
+    });
+    const metrics = await c.indexMetrics();
+    expect(metrics.itemCountByService).toEqual({});
+    const snapshot = await c.diagSnapshot();
+    expect(snapshot.index).toEqual(metrics);
+    expect(snapshot.watchers).toEqual([]);
+    const status = await c.adminStatus();
+    expect(status.policy).toEqual({ signatureValid: true, pendingRestart: false, source: "none" });
+  });
+
+  test("diagnostics methods return configured fixtures", async () => {
+    const c = new MockClient({
+      gatewayPing: {
+        version: "0.22.0",
+        uptime: 10,
+        agentLimits: { maxAgentDepth: 6, maxToolCallsPerSession: 40 },
+      },
+      diagVersion: { version: "0.22.0", commit: "abc", buildId: "b1", uptimeMs: 10 },
+      indexMetrics: {
+        itemCountByService: { github: 1 },
+        totalItems: 1,
+        indexSizeBytes: 10,
+        embeddingCoveragePercent: 100,
+        lastSuccessfulSyncByConnector: { github: 1 },
+        queryLatencyP50Ms: 1,
+        queryLatencyP95Ms: 1,
+        queryLatencyP99Ms: 1,
+      },
+      diagSnapshot: {
+        gateway: { version: "0.22.0", uptimeMs: 10 },
+        connectorHealth: [],
+        index: {
+          itemCountByService: {},
+          totalItems: 0,
+          indexSizeBytes: 0,
+          embeddingCoveragePercent: 0,
+          lastSuccessfulSyncByConnector: {},
+          queryLatencyP50Ms: 0,
+          queryLatencyP95Ms: 0,
+          queryLatencyP99Ms: 0,
+        },
+        hitl: { pendingConsentRequests: 3 },
+        watchers: [],
+        auditLogTail: [],
+        extensions: { disabled_pre_t2: 0, signature_disabled_count: 0 },
+        sandbox: {
+          platform_capabilities: { network: "all_or_nothing", reason: "no runner" },
+          linux_helper: null,
+          stale_rules_count: 0,
+        },
+      },
+      adminStatus: {
+        policy: { signatureValid: true, pendingRestart: false, source: "peer" },
+        peers: [],
+        connectors: [],
+        namespaces: [],
+        audit: { chainLength: 1, lastHash: "h", appendRate1h: 0 },
+        hitl: { pendingApprovals: 0, pendingQuorum: 0 },
+        identity: { operatorValid: true },
+        syncFreshnessMs: 1,
+      },
+    });
+    expect((await c.gatewayPing()).version).toBe("0.22.0");
+    expect((await c.diagGetVersion()).commit).toBe("abc");
+    expect((await c.indexMetrics()).totalItems).toBe(1);
+    expect((await c.diagSnapshot()).hitl).toEqual({ pendingConsentRequests: 3 });
+    expect((await c.adminStatus()).policy.source).toBe("peer");
+  });
 });

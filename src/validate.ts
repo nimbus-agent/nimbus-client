@@ -10,6 +10,10 @@
  */
 
 import type {
+  ConnectorHealthEntry,
+  ConnectorStatus,
+  DiagSnapshot,
+  DiagVersion,
   EgressCompleteness,
   EgressHead,
   EgressListResult,
@@ -17,9 +21,18 @@ import type {
   EgressReceipt,
   EgressRow,
   EgressVerifyResult,
+  GatewayPingResult,
+  GatewayStatus,
+  IdentityStatus,
   IndexedItem,
+  IndexMetrics,
+  NamespaceStatus,
+  PeerStatus,
+  PolicyState,
   RankedSearchItem,
+  SandboxDiag,
   SessionTranscript,
+  WatcherSummary,
 } from "./nimbus-client.js";
 
 /** Thrown when a Gateway response does not match its expected shape. */
@@ -250,4 +263,263 @@ export function validateEgressProveWindow(method: string, v: unknown): EgressPro
 export function validateAgentSession(method: string, v: unknown): { sessionId: string } {
   const o = record(method, v);
   return { sessionId: str(method, o, "sessionId") };
+}
+
+/**
+ * Result of `gateway.ping`. The Gateway spreads an optional embedding-status
+ * object onto the payload, so extra keys beyond the guaranteed core vary by
+ * build — this validates the core and passes the rest through untouched.
+ */
+export function validateGatewayPing(method: string, v: unknown): GatewayPingResult {
+  const o = record(method, v);
+  str(method, o, "version");
+  num(method, o, "uptime");
+  const limits = record(method, o["agentLimits"]);
+  num(method, limits, "maxAgentDepth");
+  num(method, limits, "maxToolCallsPerSession");
+  if (o["drift"] !== undefined) {
+    const drift = record(method, o["drift"]);
+    for (const line of arr(method, drift["lines"])) {
+      if (typeof line !== "string") {
+        throw new IpcResponseError(method, `drift "lines" must be strings`);
+      }
+    }
+  }
+  return o as unknown as GatewayPingResult;
+}
+
+/** Result of `diag.getVersion`. */
+export function validateDiagVersion(method: string, v: unknown): DiagVersion {
+  const o = record(method, v);
+  const version = str(method, o, "version");
+  const commit = o["commit"];
+  if (commit !== null && typeof commit !== "string") {
+    throw new IpcResponseError(method, `"commit" must be a string or null`);
+  }
+  const buildId = o["buildId"];
+  if (buildId !== null && typeof buildId !== "string") {
+    throw new IpcResponseError(method, `"buildId" must be a string or null`);
+  }
+  return { version, commit, buildId, uptimeMs: num(method, o, "uptimeMs") };
+}
+
+/** Result of `index.metrics` (also embedded as `index` inside `diag.snapshot`). */
+export function validateIndexMetrics(method: string, v: unknown): IndexMetrics {
+  const o = record(method, v);
+  const itemCountByService = record(method, o["itemCountByService"]);
+  for (const val of Object.values(itemCountByService)) {
+    if (typeof val !== "number" || !Number.isFinite(val)) {
+      throw new IpcResponseError(method, `"itemCountByService" values must be numbers`);
+    }
+  }
+  const lastSuccessfulSyncByConnector = record(method, o["lastSuccessfulSyncByConnector"]);
+  for (const val of Object.values(lastSuccessfulSyncByConnector)) {
+    if (val !== null && (typeof val !== "number" || !Number.isFinite(val))) {
+      throw new IpcResponseError(
+        method,
+        `"lastSuccessfulSyncByConnector" values must be a number or null`,
+      );
+    }
+  }
+  return {
+    itemCountByService: itemCountByService as Record<string, number>,
+    totalItems: num(method, o, "totalItems"),
+    indexSizeBytes: num(method, o, "indexSizeBytes"),
+    embeddingCoveragePercent: num(method, o, "embeddingCoveragePercent"),
+    lastSuccessfulSyncByConnector: lastSuccessfulSyncByConnector as Record<string, number | null>,
+    queryLatencyP50Ms: num(method, o, "queryLatencyP50Ms"),
+    queryLatencyP95Ms: num(method, o, "queryLatencyP95Ms"),
+    queryLatencyP99Ms: num(method, o, "queryLatencyP99Ms"),
+  };
+}
+
+function validateConnectorHealthEntry(method: string, v: unknown): ConnectorHealthEntry {
+  const o = record(method, v);
+  const entry: ConnectorHealthEntry = {
+    connectorId: str(method, o, "connectorId"),
+    state: str(method, o, "state"),
+    backoffAttempt: num(method, o, "backoffAttempt"),
+  };
+  const retryAfterMs = optNum(o, "retryAfterMs");
+  if (retryAfterMs !== undefined) entry.retryAfterMs = retryAfterMs;
+  const backoffUntilMs = optNum(o, "backoffUntilMs");
+  if (backoffUntilMs !== undefined) entry.backoffUntilMs = backoffUntilMs;
+  const lastError = optStr(o, "lastError");
+  if (lastError !== undefined) entry.lastError = lastError;
+  const lastSuccessfulSyncMs = optNum(o, "lastSuccessfulSyncMs");
+  if (lastSuccessfulSyncMs !== undefined) entry.lastSuccessfulSyncMs = lastSuccessfulSyncMs;
+  const lastSyncAttemptMs = optNum(o, "lastSyncAttemptMs");
+  if (lastSyncAttemptMs !== undefined) entry.lastSyncAttemptMs = lastSyncAttemptMs;
+  return entry;
+}
+
+function validateWatcherSummary(method: string, v: unknown): WatcherSummary {
+  const o = record(method, v);
+  const lastFiredAtMs = o["lastFiredAtMs"];
+  if (
+    lastFiredAtMs !== null &&
+    (typeof lastFiredAtMs !== "number" || !Number.isFinite(lastFiredAtMs))
+  ) {
+    throw new IpcResponseError(method, `"lastFiredAtMs" must be a number or null`);
+  }
+  return {
+    id: str(method, o, "id"),
+    name: str(method, o, "name"),
+    enabled: bool(method, o, "enabled"),
+    lastFiredAtMs,
+  };
+}
+
+function validateSandboxDiag(method: string, v: unknown): SandboxDiag {
+  const o = record(method, v);
+  const caps = record(method, o["platform_capabilities"]);
+  const network = caps["network"];
+  if (network !== "per_host" && network !== "all_or_nothing") {
+    throw new IpcResponseError(
+      method,
+      `platform_capabilities "network" must be "per_host" or "all_or_nothing"`,
+    );
+  }
+  const capsReason = caps["reason"];
+  if (capsReason !== null && typeof capsReason !== "string") {
+    throw new IpcResponseError(method, `platform_capabilities "reason" must be a string or null`);
+  }
+  const linuxHelperRaw = o["linux_helper"];
+  let linuxHelper: SandboxDiag["linux_helper"] = null;
+  if (linuxHelperRaw !== null) {
+    const lh = record(method, linuxHelperRaw);
+    const lhReason = lh["reason"];
+    if (lhReason !== null && typeof lhReason !== "string") {
+      throw new IpcResponseError(method, `linux_helper "reason" must be a string or null`);
+    }
+    linuxHelper = { available: bool(method, lh, "available"), reason: lhReason };
+  }
+  return {
+    platform_capabilities: { network, reason: capsReason },
+    linux_helper: linuxHelper,
+    stale_rules_count: num(method, o, "stale_rules_count"),
+  };
+}
+
+/** Result of `diag.snapshot`: the aggregated health/metrics/audit/watchers/HITL/sandbox view. */
+export function validateDiagSnapshot(method: string, v: unknown): DiagSnapshot {
+  const o = record(method, v);
+  const gateway = record(method, o["gateway"]);
+  const hitl = record(method, o["hitl"]);
+  const extensionsRaw = record(method, o["extensions"]);
+  const extensions: DiagSnapshot["extensions"] = {
+    disabled_pre_t2: num(method, extensionsRaw, "disabled_pre_t2"),
+    signature_disabled_count: num(method, extensionsRaw, "signature_disabled_count"),
+  };
+  if (extensionsRaw["auto_update"] !== undefined) {
+    const au = record(method, extensionsRaw["auto_update"]);
+    extensions.auto_update = {
+      cached_updates_count: num(method, au, "cached_updates_count"),
+      interval_hours: num(method, au, "interval_hours"),
+      air_gap_blocked: bool(method, au, "air_gap_blocked"),
+    };
+  }
+  return {
+    gateway: {
+      version: str(method, gateway, "version"),
+      uptimeMs: num(method, gateway, "uptimeMs"),
+    },
+    connectorHealth: arr(method, o["connectorHealth"]).map((h) =>
+      validateConnectorHealthEntry(method, h),
+    ),
+    index: validateIndexMetrics(method, o["index"]),
+    hitl: { pendingConsentRequests: num(method, hitl, "pendingConsentRequests") },
+    watchers: arr(method, o["watchers"]).map((w) => validateWatcherSummary(method, w)),
+    auditLogTail: arr(method, o["auditLogTail"]),
+    extensions,
+    sandbox: validateSandboxDiag(method, o["sandbox"]),
+  };
+}
+
+function validatePolicyState(method: string, v: unknown): PolicyState {
+  const o = record(method, v);
+  const source = o["source"];
+  if (source !== "anchor" && source !== "peer" && source !== "none") {
+    throw new IpcResponseError(method, `policy "source" must be "anchor", "peer", or "none"`);
+  }
+  const state: PolicyState = {
+    signatureValid: bool(method, o, "signatureValid"),
+    pendingRestart: bool(method, o, "pendingRestart"),
+    source,
+  };
+  const org = optStr(o, "org");
+  if (org !== undefined) state.org = org;
+  const version = optNum(o, "version");
+  if (version !== undefined) state.version = version;
+  const lastFetchedMs = optNum(o, "lastFetchedMs");
+  if (lastFetchedMs !== undefined) state.lastFetchedMs = lastFetchedMs;
+  return state;
+}
+
+function validatePeerStatus(method: string, v: unknown): PeerStatus {
+  const o = record(method, v);
+  const status: PeerStatus = {
+    peerId: str(method, o, "peerId"),
+    reachable: bool(method, o, "reachable"),
+  };
+  const lastSeenMs = optNum(o, "lastSeenMs");
+  if (lastSeenMs !== undefined) status.lastSeenMs = lastSeenMs;
+  return status;
+}
+
+function validateConnectorStatus(method: string, v: unknown): ConnectorStatus {
+  const o = record(method, v);
+  const status: ConnectorStatus = {
+    id: str(method, o, "id"),
+    enabled: bool(method, o, "enabled"),
+    blockedByPolicy: bool(method, o, "blockedByPolicy"),
+    health: str(method, o, "health"),
+  };
+  const lastSyncMs = optNum(o, "lastSyncMs");
+  if (lastSyncMs !== undefined) status.lastSyncMs = lastSyncMs;
+  return status;
+}
+
+function validateNamespaceStatus(method: string, v: unknown): NamespaceStatus {
+  const o = record(method, v);
+  const status: NamespaceStatus = {
+    name: str(method, o, "name"),
+    subscribers: num(method, o, "subscribers"),
+  };
+  const lastPropagateMs = optNum(o, "lastPropagateMs");
+  if (lastPropagateMs !== undefined) status.lastPropagateMs = lastPropagateMs;
+  return status;
+}
+
+/**
+ * Result of `admin.status`. Only meaningful when the call succeeds — the
+ * Gateway answers a plain JSON-RPC "Method not found" when it was started
+ * without `statusReaders` wired, which surfaces as a rejected promise from
+ * `IPCClient.call`, never as a validated-but-empty result.
+ */
+export function validateGatewayStatus(method: string, v: unknown): GatewayStatus {
+  const o = record(method, v);
+  const audit = record(method, o["audit"]);
+  const hitl = record(method, o["hitl"]);
+  const identity = record(method, o["identity"]);
+  const identityStatus: IdentityStatus = { operatorValid: bool(method, identity, "operatorValid") };
+  const externalId = optStr(identity, "externalId");
+  if (externalId !== undefined) identityStatus.externalId = externalId;
+  return {
+    policy: validatePolicyState(method, o["policy"]),
+    peers: arr(method, o["peers"]).map((p) => validatePeerStatus(method, p)),
+    connectors: arr(method, o["connectors"]).map((c) => validateConnectorStatus(method, c)),
+    namespaces: arr(method, o["namespaces"]).map((n) => validateNamespaceStatus(method, n)),
+    audit: {
+      chainLength: num(method, audit, "chainLength"),
+      lastHash: str(method, audit, "lastHash"),
+      appendRate1h: num(method, audit, "appendRate1h"),
+    },
+    hitl: {
+      pendingApprovals: num(method, hitl, "pendingApprovals"),
+      pendingQuorum: num(method, hitl, "pendingQuorum"),
+    },
+    identity: identityStatus,
+    syncFreshnessMs: num(method, o, "syncFreshnessMs"),
+  };
 }

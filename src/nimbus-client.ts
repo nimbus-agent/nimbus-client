@@ -36,10 +36,15 @@ import {
   validateAgentInvoke,
   validateAgentSession,
   validateAuditList,
+  validateDiagSnapshot,
+  validateDiagVersion,
   validateEgressHead,
   validateEgressList,
   validateEgressProveWindow,
   validateEgressVerify,
+  validateGatewayPing,
+  validateGatewayStatus,
+  validateIndexMetrics,
   validateOk,
   validateQueryItems,
   validateQuerySql,
@@ -195,6 +200,174 @@ export type EgressProveWindowResult = {
   receipt?: EgressReceipt;
 };
 
+/** Parameters for {@link NimbusClient.consentRespond}: the reply to a `HitlRequest`. */
+export type ConsentRespondParams = {
+  /** The `requestId` from the `HitlRequest` delivered via {@link NimbusClientLike.subscribeHitl}. */
+  requestId: string;
+  approved: boolean;
+};
+
+/**
+ * Result of {@link NimbusClient.gatewayPing}. `version`, `uptime`, and
+ * `agentLimits` are always present; `drift` is present only when the caller
+ * passed `includeDrift: true`. The Gateway also spreads an optional
+ * embedding-status object onto the payload, so extra keys beyond this core
+ * vary by build — they pass through untyped on this shape.
+ */
+export type GatewayPingResult = {
+  version: string;
+  /** Milliseconds since the Gateway process started. */
+  uptime: number;
+  agentLimits: {
+    maxAgentDepth: number;
+    maxToolCallsPerSession: number;
+  };
+  drift?: { lines: string[] };
+} & Record<string, unknown>;
+
+/** Result of {@link NimbusClient.diagGetVersion}. */
+export type DiagVersion = {
+  version: string;
+  /** Build commit SHA, or `null` when unset (e.g. a dev build). */
+  commit: string | null;
+  /** Build id, or `null` when unset. */
+  buildId: string | null;
+  uptimeMs: number;
+};
+
+/** Result of {@link NimbusClient.indexMetrics}; also embedded as `index` in {@link DiagSnapshot}. */
+export type IndexMetrics = {
+  itemCountByService: Record<string, number>;
+  totalItems: number;
+  indexSizeBytes: number;
+  embeddingCoveragePercent: number;
+  /** Epoch ms per connector id, or `null` when the connector has never synced. */
+  lastSuccessfulSyncByConnector: Record<string, number | null>;
+  queryLatencyP50Ms: number;
+  queryLatencyP95Ms: number;
+  queryLatencyP99Ms: number;
+};
+
+/** One connector's health, as embedded in {@link DiagSnapshot.connectorHealth}. */
+export type ConnectorHealthEntry = {
+  connectorId: string;
+  state: string;
+  backoffAttempt: number;
+  retryAfterMs?: number;
+  backoffUntilMs?: number;
+  lastError?: string;
+  lastSuccessfulSyncMs?: number;
+  lastSyncAttemptMs?: number;
+};
+
+/** A watcher summary, as embedded in {@link DiagSnapshot.watchers}. */
+export type WatcherSummary = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  lastFiredAtMs: number | null;
+};
+
+/** Sandbox capability diagnostics, as embedded in {@link DiagSnapshot.sandbox}. */
+export type SandboxDiag = {
+  platform_capabilities: { network: "per_host" | "all_or_nothing"; reason: string | null };
+  linux_helper: { available: boolean; reason: string | null } | null;
+  stale_rules_count: number;
+};
+
+/** Result of {@link NimbusClient.diagSnapshot}: the aggregated observability view. */
+export type DiagSnapshot = {
+  gateway: { version: string; uptimeMs: number };
+  connectorHealth: ConnectorHealthEntry[];
+  index: IndexMetrics;
+  hitl: { pendingConsentRequests: number };
+  watchers: WatcherSummary[];
+  auditLogTail: unknown[];
+  extensions: {
+    disabled_pre_t2: number;
+    signature_disabled_count: number;
+    auto_update?: {
+      cached_updates_count: number;
+      interval_hours: number;
+      air_gap_blocked: boolean;
+    };
+  };
+  sandbox: SandboxDiag;
+};
+
+/** Where a persisted org policy came from. Mirrors the Gateway's `PolicySource`. */
+export type PolicySource = "anchor" | "peer" | "none";
+
+/** Runtime policy status, as embedded in {@link GatewayStatus.policy}. */
+export type PolicyState = {
+  org?: string;
+  version?: number;
+  signatureValid: boolean;
+  lastFetchedMs?: number;
+  pendingRestart: boolean;
+  source: PolicySource;
+};
+
+/** A federation peer's reachability, as embedded in {@link GatewayStatus.peers}. */
+export type PeerStatus = {
+  peerId: string;
+  reachable: boolean;
+  lastSeenMs?: number;
+};
+
+/** A connector's status, as embedded in {@link GatewayStatus.connectors}. */
+export type ConnectorStatus = {
+  id: string;
+  enabled: boolean;
+  blockedByPolicy: boolean;
+  health: string;
+  lastSyncMs?: number;
+};
+
+/** A namespace's fan-out status, as embedded in {@link GatewayStatus.namespaces}. */
+export type NamespaceStatus = {
+  name: string;
+  subscribers: number;
+  lastPropagateMs?: number;
+};
+
+/** Audit-chain health, as embedded in {@link GatewayStatus.audit}. */
+export type AuditStatus = {
+  chainLength: number;
+  lastHash: string;
+  appendRate1h: number;
+};
+
+/** HITL queue depth, as embedded in {@link GatewayStatus.hitl}. */
+export type HitlStatusCounts = {
+  pendingApprovals: number;
+  pendingQuorum: number;
+};
+
+/** Identity/SSO status, as embedded in {@link GatewayStatus.identity}. */
+export type IdentityStatus = {
+  operatorValid: boolean;
+  externalId?: string;
+};
+
+/**
+ * Result of {@link NimbusClient.adminStatus}: the full observability snapshot.
+ * Mirrors the Gateway's `GatewayStatus` (`status/types.ts`). Only available
+ * when the Gateway was started with `statusReaders` wired — otherwise the
+ * call rejects with a JSON-RPC "Method not found" error rather than
+ * resolving to this shape.
+ */
+export type GatewayStatus = {
+  policy: PolicyState;
+  peers: PeerStatus[];
+  connectors: ConnectorStatus[];
+  namespaces: NamespaceStatus[];
+  audit: AuditStatus;
+  hitl: HitlStatusCounts;
+  identity: IdentityStatus;
+  syncFreshnessMs: number;
+};
+
 /**
  * The public surface shared by {@link NimbusClient} and
  * {@link MockClient}. A consumer can type against this so the real client and
@@ -227,6 +400,12 @@ export interface NimbusClientLike {
   egressList(params?: EgressListParams): Promise<EgressListResult>;
   egressVerify(): Promise<EgressVerifyResult>;
   egressProveWindow(params?: EgressProveWindowParams): Promise<EgressProveWindowResult>;
+  consentRespond(params: ConsentRespondParams): Promise<{ ok: boolean }>;
+  gatewayPing(params?: { includeDrift?: boolean }): Promise<GatewayPingResult>;
+  diagGetVersion(): Promise<DiagVersion>;
+  indexMetrics(): Promise<IndexMetrics>;
+  diagSnapshot(): Promise<DiagSnapshot>;
+  adminStatus(): Promise<GatewayStatus>;
   agentsExpert(p: ExpertParams, o?: { timeoutMs?: number }): Promise<ExpertBrief>;
   agentsImpact(p: ImpactParams, o?: { timeoutMs?: number }): Promise<ImpactBrief>;
   agentsCatchup(p?: CatchupParams, o?: { timeoutMs?: number }): Promise<CatchupBrief>;
@@ -490,6 +669,57 @@ export class NimbusClient implements NimbusClientLike {
       sign: params.sign,
     });
     return validateEgressProveWindow("egress.proveWindow", raw);
+  }
+
+  /**
+   * Reply to a pending HITL request delivered via {@link NimbusClient.subscribeHitl}.
+   * `requestId` must match the one on the `HitlRequest`; the Gateway rejects
+   * unknown, foreign (another client's), or already-answered request ids.
+   */
+  async consentRespond(params: ConsentRespondParams): Promise<{ ok: boolean }> {
+    const raw = await this.ipc.call("consent.respond", {
+      requestId: params.requestId,
+      approved: params.approved,
+    });
+    return validateOk("consent.respond", raw);
+  }
+
+  /**
+   * Liveness + version probe. Pass `includeDrift: true` to also get local-index
+   * drift hints. See {@link GatewayPingResult} for which fields are guaranteed.
+   */
+  async gatewayPing(params: { includeDrift?: boolean } = {}): Promise<GatewayPingResult> {
+    const raw = await this.ipc.call("gateway.ping", { includeDrift: params.includeDrift });
+    return validateGatewayPing("gateway.ping", raw);
+  }
+
+  /** Gateway build identity: version, commit, build id, and uptime. */
+  async diagGetVersion(): Promise<DiagVersion> {
+    return validateDiagVersion("diag.getVersion", await this.ipc.call("diag.getVersion"));
+  }
+
+  /** Index size, per-service item counts, embedding coverage, and query latency percentiles. */
+  async indexMetrics(): Promise<IndexMetrics> {
+    return validateIndexMetrics("index.metrics", await this.ipc.call("index.metrics"));
+  }
+
+  /** Aggregated observability snapshot: connector health, index metrics, HITL/watcher/sandbox state. */
+  async diagSnapshot(): Promise<DiagSnapshot> {
+    return validateDiagSnapshot("diag.snapshot", await this.ipc.call("diag.snapshot"));
+  }
+
+  /**
+   * Full policy/peers/connectors/namespaces/audit/hitl/identity snapshot.
+   *
+   * `admin.status` is only registered when the Gateway was started with
+   * `statusReaders` wired (Phase 6 Team builds and later). On a Gateway
+   * without it, the call rejects with a plain JSON-RPC "Method not found"
+   * error rather than resolving — there is no separate "unsupported" return
+   * value, so callers that want to treat this as optional should catch and
+   * inspect the rejection.
+   */
+  async adminStatus(): Promise<GatewayStatus> {
+    return validateGatewayStatus("admin.status", await this.ipc.call("admin.status"));
   }
 
   async close(): Promise<void> {
