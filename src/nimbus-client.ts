@@ -195,6 +195,13 @@ export type EgressProveWindowResult = {
   receipt?: EgressReceipt;
 };
 
+/** Parameters for {@link NimbusClient.consentRespond}: the reply to a `HitlRequest`. */
+export type ConsentRespondParams = {
+  /** The `requestId` from the `HitlRequest` delivered via {@link NimbusClientLike.subscribeHitl}. */
+  requestId: string;
+  approved: boolean;
+};
+
 /**
  * The public surface shared by {@link NimbusClient} and
  * {@link MockClient}. A consumer can type against this so the real client and
@@ -227,6 +234,7 @@ export interface NimbusClientLike {
   egressList(params?: EgressListParams): Promise<EgressListResult>;
   egressVerify(): Promise<EgressVerifyResult>;
   egressProveWindow(params?: EgressProveWindowParams): Promise<EgressProveWindowResult>;
+  consentRespond(params: ConsentRespondParams): Promise<{ ok: boolean }>;
   agentsExpert(p: ExpertParams, o?: { timeoutMs?: number }): Promise<ExpertBrief>;
   agentsImpact(p: ImpactParams, o?: { timeoutMs?: number }): Promise<ImpactBrief>;
   agentsCatchup(p?: CatchupParams, o?: { timeoutMs?: number }): Promise<CatchupBrief>;
@@ -490,6 +498,19 @@ export class NimbusClient implements NimbusClientLike {
       sign: params.sign,
     });
     return validateEgressProveWindow("egress.proveWindow", raw);
+  }
+
+  /**
+   * Reply to a pending HITL request delivered via {@link NimbusClient.subscribeHitl}.
+   * `requestId` must match the one on the `HitlRequest`; the Gateway rejects
+   * unknown, foreign (another client's), or already-answered request ids.
+   */
+  async consentRespond(params: ConsentRespondParams): Promise<{ ok: boolean }> {
+    const raw = await this.ipc.call("consent.respond", {
+      requestId: params.requestId,
+      approved: params.approved,
+    });
+    return validateOk("consent.respond", raw);
   }
 
   async close(): Promise<void> {

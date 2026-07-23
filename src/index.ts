@@ -43,6 +43,7 @@ export {
 export { IPCClient, type IPCClientOptions } from "./ipc-transport.js";
 export { MockClient, type MockClientFixtures } from "./mock-client.js";
 export {
+  type ConsentRespondParams,
   type EgressCompleteness,
   type EgressHead,
   type EgressListParams,

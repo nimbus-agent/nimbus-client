@@ -23,6 +23,7 @@ import type {
   PreflightParams,
 } from "./agents.js";
 import type {
+  ConsentRespondParams,
   EgressHead,
   EgressListParams,
   EgressListResult,
@@ -215,6 +216,10 @@ export class MockClient implements NimbusClientLike {
         verify: { ok: true, verifiedRows: 0 },
       }
     );
+  }
+
+  async consentRespond(_params: ConsentRespondParams): Promise<{ ok: boolean }> {
+    return { ok: true };
   }
 
   async close(): Promise<void> {

@@ -147,6 +147,26 @@ describe("NimbusClient method dispatch", () => {
     expect(ipc.calls[0]?.params).toEqual({ since: 1, until: 2, sign: true });
   });
 
+  test("consentRespond sends requestId + approved and validates { ok }", async () => {
+    const ipc = new FakeIpc([{ ok: true }]);
+    const result = await makeClient(ipc).consentRespond({ requestId: "r1", approved: true });
+    expect(ipc.calls[0]).toEqual({
+      method: "consent.respond",
+      params: { requestId: "r1", approved: true },
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  test("consentRespond propagates a Gateway rejection (unknown/foreign request)", async () => {
+    const ipc = new FakeIpc();
+    ipc.call = async () => {
+      throw new Error("Unknown or foreign consent request");
+    };
+    await expect(
+      makeClient(ipc).consentRespond({ requestId: "bogus", approved: false }),
+    ).rejects.toThrow(/Unknown or foreign consent request/);
+  });
+
   test("askStream returns a handle with a string streamId", async () => {
     const ipc = new FakeIpc([{ streamId: "stream-1" }]);
     const h = makeClient(ipc).askStream("hi");

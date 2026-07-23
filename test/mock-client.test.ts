@@ -149,4 +149,10 @@ describe("MockClient", () => {
   test("an unconfigured agent rejects with a named reason", async () => {
     await expect(new MockClient().agentsGhost({ file: "a" })).rejects.toThrow("agentBriefs.ghost");
   });
+
+  test("consentRespond always resolves ok (no HITL loop in-memory)", async () => {
+    expect(await new MockClient().consentRespond({ requestId: "r1", approved: true })).toEqual({
+      ok: true,
+    });
+  });
 });
