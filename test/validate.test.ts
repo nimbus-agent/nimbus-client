@@ -8,8 +8,10 @@ import {
   validateAuditSummary,
   validateAuditToolCalls,
   validateAuditVerify,
+  validateDeployPreflight,
   validateDiagSnapshot,
   validateDiagVersion,
+  validateDoraMetrics,
   validateEgressHead,
   validateEgressList,
   validateEgressProveWindow,
@@ -21,6 +23,9 @@ import {
   validateQueryItems,
   validateQuerySql,
   validateRankedItems,
+  validateSessionClear,
+  validateSessionList,
+  validateSessionRecall,
   validateSessionTranscript,
 } from "../src/validate.ts";
 
@@ -73,6 +78,32 @@ const ROW = {
   resultStatus: "authorized",
   rowHash: "h1",
   prevHash: "h0",
+};
+
+const DORA_METRIC_VALUE = { value: 1, unit: "deploys_per_day", sample: 10, gap: null };
+
+const DORA_WIRE = {
+  service: "checkout",
+  since_ms: 2_592_000_000,
+  computed_at: "2026-07-22T00:00:00.000Z",
+  metrics: {
+    deployment_frequency: DORA_METRIC_VALUE,
+    lead_time_for_changes: { value: 3600, unit: "seconds_median", sample: 10, gap: null },
+    change_failure_rate: { value: 0.1, unit: "ratio", sample: 10, gap: "low_sample" },
+    mttr: { value: null, unit: "seconds_median", sample: 0, gap: "no_pagerduty_mapping" },
+  },
+};
+
+const PREFLIGHT_WIRE = {
+  service: "checkout",
+  target_ref: "main",
+  computed_at: "2026-07-22T00:00:00.000Z",
+  verdict: "ok" as const,
+  checks: {
+    active_p1_incidents: { count: 0, findings: [], gap: null },
+    failing_ci_runs: { count: 0, findings: [], gap: null },
+    merge_conflicts: { count: 0, findings: [], gap: null },
+  },
 };
 
 describe("validate — happy paths", () => {
@@ -276,6 +307,127 @@ describe("validate — happy paths", () => {
     expect(out.peers).toHaveLength(1);
     expect(out.identity).toEqual({ operatorValid: true });
   });
+
+  test("validateSessionRecall accepts chunks with each memory role", () => {
+    const out = validateSessionRecall("session.recall", {
+      chunks: [
+        { chunkText: "a", role: "user", createdAt: 1, distance: 0.1 },
+        { chunkText: "b", role: "assistant", createdAt: 2, distance: 0.2 },
+        { chunkText: "c", role: "tool", createdAt: 3, distance: 0.3 },
+      ],
+    });
+    expect(out.chunks).toHaveLength(3);
+    expect(out.chunks[2]?.role).toBe("tool");
+  });
+
+  test("validateSessionRecall accepts an empty chunks array", () => {
+    expect(validateSessionRecall("session.recall", { chunks: [] })).toEqual({ chunks: [] });
+  });
+
+  test("validateSessionList accepts session summaries", () => {
+    const out = validateSessionList("session.list", {
+      sessions: [{ sessionId: "s1", lastWriteAt: 100, chunkCount: 5 }],
+    });
+    expect(out.sessions).toEqual([{ sessionId: "s1", lastWriteAt: 100, chunkCount: 5 }]);
+  });
+
+  test("validateSessionClear accepts a single-session and an all-sessions result", () => {
+    expect(validateSessionClear("session.clear", { ok: true, cleared: "s1" })).toEqual({
+      ok: true,
+      cleared: "s1",
+    });
+    expect(validateSessionClear("session.clear", { ok: true, cleared: "all" })).toEqual({
+      ok: true,
+      cleared: "all",
+    });
+  });
+
+  test("validateDoraMetrics accepts a fully-populated result with mixed gap codes", () => {
+    const out = validateDoraMetrics("metrics.dora", DORA_WIRE);
+    expect(out.metrics.deployment_frequency).toEqual(DORA_METRIC_VALUE);
+    expect(out.metrics.change_failure_rate.gap).toBe("low_sample");
+  });
+
+  test("validateDoraMetrics accepts the unconfigured-service envelope (all null values)", () => {
+    const wire = {
+      service: "unknown",
+      since_ms: 2_592_000_000,
+      computed_at: "2026-07-22T00:00:00.000Z",
+      metrics: {
+        deployment_frequency: { value: null, unit: "deploys_per_day", sample: 0, gap: "no_repos" },
+        lead_time_for_changes: { value: null, unit: "seconds_median", sample: 0, gap: "no_repos" },
+        change_failure_rate: { value: null, unit: "ratio", sample: 0, gap: "no_repos" },
+        mttr: { value: null, unit: "seconds_median", sample: 0, gap: "no_repos" },
+      },
+    };
+    const out = validateDoraMetrics("metrics.dora", wire);
+    expect(out.metrics.deployment_frequency.value).toBeNull();
+    expect(out.metrics.mttr.gap).toBe("no_repos");
+  });
+
+  test("validateDeployPreflight accepts an empty-findings ok verdict", () => {
+    const out = validateDeployPreflight("deploy.preflight", PREFLIGHT_WIRE);
+    expect(out.verdict).toBe("ok");
+    expect(out.checks.active_p1_incidents).toEqual({ count: 0, findings: [], gap: null });
+  });
+
+  test("validateDeployPreflight accepts warn verdict with populated findings and null urls", () => {
+    const wire = {
+      ...PREFLIGHT_WIRE,
+      verdict: "warn",
+      checks: {
+        active_p1_incidents: {
+          count: 1,
+          findings: [
+            {
+              id: "PD1",
+              title: "t",
+              status: "acknowledged",
+              severity: "critical",
+              opened_at_ms: 1,
+              pagerduty_service_id: "svc",
+              url: null,
+            },
+          ],
+          gap: null,
+        },
+        failing_ci_runs: {
+          count: 1,
+          findings: [
+            {
+              id: "r1",
+              title: "t",
+              conclusion: "cancelled",
+              modified_at_ms: 1,
+              branch: "main",
+              head_sha: null,
+              url: null,
+            },
+          ],
+          gap: null,
+        },
+        merge_conflicts: {
+          count: 1,
+          findings: [
+            {
+              id: "pr1",
+              title: "t",
+              number: 1,
+              mergeable_state: "dirty",
+              modified_at_ms: 1,
+              url: null,
+            },
+          ],
+          gap: null,
+        },
+      },
+    };
+    const out = validateDeployPreflight("deploy.preflight", wire);
+    expect(out.verdict).toBe("warn");
+    expect(out.checks.active_p1_incidents.findings[0]?.status).toBe("acknowledged");
+    expect(out.checks.failing_ci_runs.findings[0]?.conclusion).toBe("cancelled");
+    expect(out.checks.merge_conflicts.findings[0]?.mergeable_state).toBe("dirty");
+  });
 });
 
 describe("validate — rejections throw IpcResponseError", () => {
@@ -458,6 +610,159 @@ describe("validate — rejections throw IpcResponseError", () => {
         policy: { ...GATEWAY_STATUS_WIRE.policy, source: "bogus" },
       }),
     ).toThrow(/"source" must be "anchor", "peer", or "none"/);
+  });
+
+  test("validateSessionRecall rejects an invalid chunk role", () => {
+    expect(() =>
+      validateSessionRecall("session.recall", {
+        chunks: [{ chunkText: "a", role: "system", createdAt: 1, distance: 0.1 }],
+      }),
+    ).toThrow(/"role" must be "user", "assistant", or "tool"/);
+  });
+
+  test("validateSessionRecall rejects a non-array chunks", () => {
+    expect(() => validateSessionRecall("session.recall", { chunks: "nope" })).toThrow(
+      /expected an array/,
+    );
+  });
+
+  test("validateSessionList rejects a non-numeric chunkCount", () => {
+    expect(() =>
+      validateSessionList("session.list", {
+        sessions: [{ sessionId: "s1", lastWriteAt: 1, chunkCount: "many" }],
+      }),
+    ).toThrow(/"chunkCount" must be a finite number/);
+  });
+
+  test("validateSessionClear rejects a missing cleared field", () => {
+    expect(() => validateSessionClear("session.clear", { ok: true })).toThrow(
+      /"cleared" must be a string/,
+    );
+  });
+
+  test("validateDoraMetrics rejects an unrecognised gap code (defends against a defanged check)", () => {
+    expect(() =>
+      validateDoraMetrics("metrics.dora", {
+        ...DORA_WIRE,
+        metrics: {
+          ...DORA_WIRE.metrics,
+          deployment_frequency: { ...DORA_METRIC_VALUE, gap: "bogus" },
+        },
+      }),
+    ).toThrow(/must be a recognised DORA gap code or null/);
+  });
+
+  test("validateDoraMetrics rejects a non-number/non-null metric value", () => {
+    expect(() =>
+      validateDoraMetrics("metrics.dora", {
+        ...DORA_WIRE,
+        metrics: {
+          ...DORA_WIRE.metrics,
+          deployment_frequency: { ...DORA_METRIC_VALUE, value: "2.5" },
+        },
+      }),
+    ).toThrow(/"deployment_frequency.value" must be a number or null/);
+  });
+
+  test("validateDoraMetrics rejects a missing metrics object", () => {
+    expect(() => validateDoraMetrics("metrics.dora", { service: "x" })).toThrow(
+      /expected an object/,
+    );
+  });
+
+  test("validateDeployPreflight rejects an invalid verdict", () => {
+    expect(() =>
+      validateDeployPreflight("deploy.preflight", { ...PREFLIGHT_WIRE, verdict: "fail" }),
+    ).toThrow(/"verdict" must be "ok" or "warn"/);
+  });
+
+  test("validateDeployPreflight rejects an unrecognised gap code", () => {
+    expect(() =>
+      validateDeployPreflight("deploy.preflight", {
+        ...PREFLIGHT_WIRE,
+        checks: {
+          ...PREFLIGHT_WIRE.checks,
+          active_p1_incidents: { count: 0, findings: [], gap: "bogus" },
+        },
+      }),
+    ).toThrow(/must be a recognised preflight gap code or null/);
+  });
+
+  test("validateDeployPreflight rejects an invalid incident status", () => {
+    expect(() =>
+      validateDeployPreflight("deploy.preflight", {
+        ...PREFLIGHT_WIRE,
+        checks: {
+          ...PREFLIGHT_WIRE.checks,
+          active_p1_incidents: {
+            count: 1,
+            findings: [
+              {
+                id: "PD1",
+                title: "t",
+                status: "resolved",
+                severity: "critical",
+                opened_at_ms: 1,
+                pagerduty_service_id: "svc",
+                url: null,
+              },
+            ],
+            gap: null,
+          },
+        },
+      }),
+    ).toThrow(/"status" must be "triggered" or "acknowledged"/);
+  });
+
+  test("validateDeployPreflight rejects an invalid ci conclusion", () => {
+    expect(() =>
+      validateDeployPreflight("deploy.preflight", {
+        ...PREFLIGHT_WIRE,
+        checks: {
+          ...PREFLIGHT_WIRE.checks,
+          failing_ci_runs: {
+            count: 1,
+            findings: [
+              {
+                id: "r1",
+                title: "t",
+                conclusion: "success",
+                modified_at_ms: 1,
+                branch: "main",
+                head_sha: null,
+                url: null,
+              },
+            ],
+            gap: null,
+          },
+        },
+      }),
+    ).toThrow(/"conclusion" must be "failure", "cancelled", or "timed_out"/);
+  });
+
+  test("validateDeployPreflight rejects a non-string/non-null finding url", () => {
+    expect(() =>
+      validateDeployPreflight("deploy.preflight", {
+        ...PREFLIGHT_WIRE,
+        checks: {
+          ...PREFLIGHT_WIRE.checks,
+          merge_conflicts: {
+            count: 1,
+            findings: [
+              {
+                id: "pr1",
+                title: "t",
+                number: 1,
+                mergeable_state: "dirty",
+                modified_at_ms: 1,
+                url: 7,
+              },
+            ],
+            gap: null,
+          },
+        },
+      }),
+    ).toThrow(/"url" must be a string or null/);
   });
 });
 

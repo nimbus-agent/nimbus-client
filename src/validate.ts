@@ -13,10 +13,15 @@ import type {
   AuditSummary,
   AuditToolCallsResult,
   AuditVerifyResult,
+  CiFinding,
   ConnectorHealthEntry,
   ConnectorStatus,
+  DeployPreflightResult,
   DiagSnapshot,
   DiagVersion,
+  DoraGap,
+  DoraMetricsResult,
+  DoraMetricValue,
   EgressCompleteness,
   EgressHead,
   EgressListResult,
@@ -27,13 +32,23 @@ import type {
   GatewayPingResult,
   GatewayStatus,
   IdentityStatus,
+  IncidentFinding,
   IndexedItem,
   IndexMetrics,
   NamespaceStatus,
   PeerStatus,
   PolicyState,
+  PreflightCheck,
+  PreflightGap,
+  PrFinding,
   RankedSearchItem,
   SandboxDiag,
+  SessionClearResult,
+  SessionListEntry,
+  SessionListResult,
+  SessionMemoryRole,
+  SessionRecallHit,
+  SessionRecallResult,
   SessionTranscript,
   ToolCallLogEntry,
   WatcherSummary,
@@ -126,6 +141,57 @@ export function validateSessionTranscript(method: string, v: unknown): SessionTr
     return turn;
   });
   return { sessionId: str(method, o, "sessionId"), turns, hasMore: bool(method, o, "hasMore") };
+}
+
+function validateSessionMemoryRole(
+  method: string,
+  o: Record<string, unknown>,
+  key: string,
+): SessionMemoryRole {
+  const v = o[key];
+  if (v !== "user" && v !== "assistant" && v !== "tool") {
+    throw new IpcResponseError(method, `"${key}" must be "user", "assistant", or "tool"`);
+  }
+  return v;
+}
+
+function validateSessionRecallHit(method: string, v: unknown): SessionRecallHit {
+  const o = record(method, v);
+  return {
+    chunkText: str(method, o, "chunkText"),
+    role: validateSessionMemoryRole(method, o, "role"),
+    createdAt: num(method, o, "createdAt"),
+    distance: num(method, o, "distance"),
+  };
+}
+
+/** Result of `session.recall`. */
+export function validateSessionRecall(method: string, v: unknown): SessionRecallResult {
+  const o = record(method, v);
+  return { chunks: arr(method, o["chunks"]).map((c) => validateSessionRecallHit(method, c)) };
+}
+
+function validateSessionListEntry(method: string, v: unknown): SessionListEntry {
+  const o = record(method, v);
+  return {
+    sessionId: str(method, o, "sessionId"),
+    lastWriteAt: num(method, o, "lastWriteAt"),
+    chunkCount: num(method, o, "chunkCount"),
+  };
+}
+
+/** Result of `session.list`. */
+export function validateSessionList(method: string, v: unknown): SessionListResult {
+  const o = record(method, v);
+  return {
+    sessions: arr(method, o["sessions"]).map((s) => validateSessionListEntry(method, s)),
+  };
+}
+
+/** Result of `session.clear`. */
+export function validateSessionClear(method: string, v: unknown): SessionClearResult {
+  const o = record(method, v);
+  return { ok: bool(method, o, "ok"), cleared: str(method, o, "cleared") };
 }
 
 /**
@@ -600,5 +666,197 @@ export function validateGatewayStatus(method: string, v: unknown): GatewayStatus
     },
     identity: identityStatus,
     syncFreshnessMs: num(method, o, "syncFreshnessMs"),
+  };
+}
+
+const DORA_GAP_VALUES = new Set<string>([
+  "no_pagerduty_mapping",
+  "no_repos",
+  "no_deployment_data",
+  "low_sample",
+  "approximate_lead_time",
+  "mixed_source",
+]);
+
+function validateDoraGap(method: string, v: unknown, field: string): DoraGap {
+  if (v === null) return null;
+  if (typeof v === "string" && DORA_GAP_VALUES.has(v)) return v as DoraGap;
+  throw new IpcResponseError(method, `"${field}" must be a recognised DORA gap code or null`);
+}
+
+function validateDoraMetricValue(method: string, v: unknown, field: string): DoraMetricValue {
+  const o = record(method, v);
+  const value = o["value"];
+  if (value !== null && (typeof value !== "number" || !Number.isFinite(value))) {
+    throw new IpcResponseError(method, `"${field}.value" must be a number or null`);
+  }
+  return {
+    value,
+    unit: str(method, o, "unit"),
+    sample: num(method, o, "sample"),
+    gap: validateDoraGap(method, o["gap"], `${field}.gap`),
+  };
+}
+
+/**
+ * Result of `metrics.dora`. A `value: null` metric (no deployment data, an
+ * unconfigured service, etc.) is a valid, expected response — not rejected.
+ */
+export function validateDoraMetrics(method: string, v: unknown): DoraMetricsResult {
+  const o = record(method, v);
+  const metrics = record(method, o["metrics"]);
+  return {
+    service: str(method, o, "service"),
+    since_ms: num(method, o, "since_ms"),
+    computed_at: str(method, o, "computed_at"),
+    metrics: {
+      deployment_frequency: validateDoraMetricValue(
+        method,
+        metrics["deployment_frequency"],
+        "deployment_frequency",
+      ),
+      lead_time_for_changes: validateDoraMetricValue(
+        method,
+        metrics["lead_time_for_changes"],
+        "lead_time_for_changes",
+      ),
+      change_failure_rate: validateDoraMetricValue(
+        method,
+        metrics["change_failure_rate"],
+        "change_failure_rate",
+      ),
+      mttr: validateDoraMetricValue(method, metrics["mttr"], "mttr"),
+    },
+  };
+}
+
+const PREFLIGHT_GAP_VALUES = new Set<string>([
+  "no_pagerduty_mapping",
+  "no_repos",
+  "unknown_mergeable_state",
+  "pagerduty_urgency_without_priority",
+]);
+
+function validatePreflightGap(method: string, v: unknown, field: string): PreflightGap {
+  if (v === null) return null;
+  if (typeof v === "string" && PREFLIGHT_GAP_VALUES.has(v)) return v as PreflightGap;
+  throw new IpcResponseError(method, `"${field}" must be a recognised preflight gap code or null`);
+}
+
+function optUrl(method: string, o: Record<string, unknown>, field: string): string | null {
+  const url = o["url"];
+  if (url !== null && typeof url !== "string") {
+    throw new IpcResponseError(method, `${field} "url" must be a string or null`);
+  }
+  return url;
+}
+
+function validateIncidentFinding(method: string, v: unknown): IncidentFinding {
+  const o = record(method, v);
+  const status = o["status"];
+  if (status !== "triggered" && status !== "acknowledged") {
+    throw new IpcResponseError(
+      method,
+      `incident finding "status" must be "triggered" or "acknowledged"`,
+    );
+  }
+  return {
+    id: str(method, o, "id"),
+    title: str(method, o, "title"),
+    status,
+    severity: str(method, o, "severity"),
+    opened_at_ms: num(method, o, "opened_at_ms"),
+    pagerduty_service_id: str(method, o, "pagerduty_service_id"),
+    url: optUrl(method, o, "incident finding"),
+  };
+}
+
+function validateCiFinding(method: string, v: unknown): CiFinding {
+  const o = record(method, v);
+  const conclusion = o["conclusion"];
+  if (conclusion !== "failure" && conclusion !== "cancelled" && conclusion !== "timed_out") {
+    throw new IpcResponseError(
+      method,
+      `ci finding "conclusion" must be "failure", "cancelled", or "timed_out"`,
+    );
+  }
+  const headSha = o["head_sha"];
+  if (headSha !== null && typeof headSha !== "string") {
+    throw new IpcResponseError(method, `ci finding "head_sha" must be a string or null`);
+  }
+  return {
+    id: str(method, o, "id"),
+    title: str(method, o, "title"),
+    conclusion,
+    modified_at_ms: num(method, o, "modified_at_ms"),
+    branch: str(method, o, "branch"),
+    head_sha: headSha,
+    url: optUrl(method, o, "ci finding"),
+  };
+}
+
+function validatePrFinding(method: string, v: unknown): PrFinding {
+  const o = record(method, v);
+  return {
+    id: str(method, o, "id"),
+    title: str(method, o, "title"),
+    number: num(method, o, "number"),
+    mergeable_state: str(method, o, "mergeable_state"),
+    modified_at_ms: num(method, o, "modified_at_ms"),
+    url: optUrl(method, o, "pr finding"),
+  };
+}
+
+function validatePreflightCheck<F>(
+  method: string,
+  v: unknown,
+  field: string,
+  validateFinding: (method: string, v: unknown) => F,
+): PreflightCheck<F> {
+  const o = record(method, v);
+  return {
+    count: num(method, o, "count"),
+    findings: arr(method, o["findings"]).map((f) => validateFinding(method, f)),
+    gap: validatePreflightGap(method, o["gap"], `${field}.gap`),
+  };
+}
+
+/**
+ * Result of `deploy.preflight`. An unconfigured service still resolves
+ * successfully (`verdict: "ok"`, every check at `count: 0` with a gap code)
+ * rather than the call rejecting.
+ */
+export function validateDeployPreflight(method: string, v: unknown): DeployPreflightResult {
+  const o = record(method, v);
+  const verdict = o["verdict"];
+  if (verdict !== "ok" && verdict !== "warn") {
+    throw new IpcResponseError(method, `"verdict" must be "ok" or "warn"`);
+  }
+  const checks = record(method, o["checks"]);
+  return {
+    service: str(method, o, "service"),
+    target_ref: str(method, o, "target_ref"),
+    computed_at: str(method, o, "computed_at"),
+    verdict,
+    checks: {
+      active_p1_incidents: validatePreflightCheck(
+        method,
+        checks["active_p1_incidents"],
+        "active_p1_incidents",
+        validateIncidentFinding,
+      ),
+      failing_ci_runs: validatePreflightCheck(
+        method,
+        checks["failing_ci_runs"],
+        "failing_ci_runs",
+        validateCiFinding,
+      ),
+      merge_conflicts: validatePreflightCheck(
+        method,
+        checks["merge_conflicts"],
+        "merge_conflicts",
+        validatePrFinding,
+      ),
+    },
   };
 }

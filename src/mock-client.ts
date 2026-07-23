@@ -29,8 +29,11 @@ import type {
   AuditVerifyParams,
   AuditVerifyResult,
   ConsentRespondParams,
+  DeployPreflightParams,
+  DeployPreflightResult,
   DiagSnapshot,
   DiagVersion,
+  DoraMetricsResult,
   EgressHead,
   EgressListParams,
   EgressListResult,
@@ -42,9 +45,16 @@ import type {
   GatewayStatus,
   IndexedItem,
   IndexMetrics,
+  MetricsDoraParams,
   NimbusClientLike,
   RankedSearchItem,
   RankedSearchParams,
+  SessionAppendParams,
+  SessionClearParams,
+  SessionClearResult,
+  SessionListResult,
+  SessionRecallParams,
+  SessionRecallResult,
   SessionTranscript,
 } from "./nimbus-client.js";
 import type {
@@ -72,6 +82,10 @@ export type MockClientFixtures = {
   indexMetrics?: IndexMetrics;
   diagSnapshot?: DiagSnapshot;
   adminStatus?: GatewayStatus;
+  sessionRecall?: SessionRecallResult;
+  sessionList?: SessionListResult;
+  metricsDora?: DoraMetricsResult;
+  deployPreflight?: DeployPreflightResult;
   agentBriefs?: Partial<{
     expert: ExpertBrief;
     impact: ImpactBrief;
@@ -189,6 +203,22 @@ export class MockClient implements NimbusClientLike {
 
   async cancelStream(): Promise<{ ok: boolean }> {
     return { ok: true };
+  }
+
+  async sessionAppend(_params: SessionAppendParams): Promise<{ ok: boolean }> {
+    return { ok: true };
+  }
+
+  async sessionRecall(_params: SessionRecallParams): Promise<SessionRecallResult> {
+    return this.fixtures.sessionRecall ?? { chunks: [] };
+  }
+
+  async sessionList(): Promise<SessionListResult> {
+    return this.fixtures.sessionList ?? { sessions: [] };
+  }
+
+  async sessionClear(_params?: SessionClearParams): Promise<SessionClearResult> {
+    return { ok: true, cleared: "all" };
   }
 
   async queryItems(_params: {
@@ -315,6 +345,48 @@ export class MockClient implements NimbusClientLike {
         hitl: { pendingApprovals: 0, pendingQuorum: 0 },
         identity: { operatorValid: true },
         syncFreshnessMs: 0,
+      }
+    );
+  }
+
+  async metricsDora(_params: MetricsDoraParams): Promise<DoraMetricsResult> {
+    return (
+      this.fixtures.metricsDora ?? {
+        service: "mock",
+        since_ms: 0,
+        computed_at: new Date(0).toISOString(),
+        metrics: {
+          deployment_frequency: {
+            value: null,
+            unit: "deploys_per_day",
+            sample: 0,
+            gap: "no_repos",
+          },
+          lead_time_for_changes: {
+            value: null,
+            unit: "seconds_median",
+            sample: 0,
+            gap: "no_repos",
+          },
+          change_failure_rate: { value: null, unit: "ratio", sample: 0, gap: "no_repos" },
+          mttr: { value: null, unit: "seconds_median", sample: 0, gap: "no_repos" },
+        },
+      }
+    );
+  }
+
+  async deployPreflight(_params: DeployPreflightParams): Promise<DeployPreflightResult> {
+    return (
+      this.fixtures.deployPreflight ?? {
+        service: "mock",
+        target_ref: "main",
+        computed_at: new Date(0).toISOString(),
+        verdict: "ok",
+        checks: {
+          active_p1_incidents: { count: 0, findings: [], gap: "no_pagerduty_mapping" },
+          failing_ci_runs: { count: 0, findings: [], gap: "no_repos" },
+          merge_conflicts: { count: 0, findings: [], gap: "no_repos" },
+        },
       }
     );
   }
