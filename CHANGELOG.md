@@ -2,6 +2,18 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.8.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.7.1...client-v0.8.0) (2026-07-23)
+
+
+### Features
+
+* expose consent.respond and the diagnostics methods (Stage 1, waves 1b + 1c) ([#19](https://github.com/nimbus-agent/nimbus-client/issues/19)) ([4275785](https://github.com/nimbus-agent/nimbus-client/commit/427578563bb5c2465ba9adfbcaf5dd2fe5890289))
+
+
+### Bug Fixes
+
+* **tsconfig:** put test files in the editor's project ([#21](https://github.com/nimbus-agent/nimbus-client/issues/21)) ([94c059c](https://github.com/nimbus-agent/nimbus-client/commit/94c059c04d11388726b423701164d450f6502d1c))
+
 ## [0.7.1](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.7.0...client-v0.7.1) (2026-07-23)
 
 
