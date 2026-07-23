@@ -112,6 +112,45 @@ describe("MockClient", () => {
     expect((await c.egressProveWindow()).completeness.outboundEgressEvents).toBe(1);
   });
 
+  test("audit methods return safe defaults without fixtures", async () => {
+    const c = new MockClient();
+    expect(await c.auditVerify()).toEqual({ ok: true, verifiedRows: 0, lastVerifiedId: 0 });
+    // Params accepted for drop-in parity with NimbusClient (TS would reject if not).
+    expect(await c.auditVerify({ full: true })).toEqual({
+      ok: true,
+      verifiedRows: 0,
+      lastVerifiedId: 0,
+    });
+    expect(await c.auditGetSummary()).toEqual({ byOutcome: {}, byService: {}, total: 0 });
+    expect(await c.auditToolCalls({ toolId: "t", limit: 5 })).toEqual({
+      toolCalls: [],
+      hasMore: false,
+      nextCursor: null,
+    });
+  });
+
+  test("audit methods return configured fixtures", async () => {
+    const entry = {
+      id: 1,
+      sessionId: "s1",
+      toolId: "github.issue.create",
+      service: "github",
+      calledAt: 100,
+      durationMs: 5,
+      resultEnvelope: "{}",
+      status: "ok" as const,
+      params: { a: 1 },
+    };
+    const c = new MockClient({
+      auditVerify: { ok: false, verifiedRows: 2, lastVerifiedId: 2, firstBreakAtId: 3 },
+      auditSummary: { byOutcome: { approved: 1 }, byService: { github: 1 }, total: 1 },
+      auditToolCalls: { toolCalls: [entry], hasMore: true, nextCursor: { calledAt: 100, id: 1 } },
+    });
+    expect((await c.auditVerify()).firstBreakAtId).toBe(3);
+    expect((await c.auditGetSummary()).total).toBe(1);
+    expect((await c.auditToolCalls()).toolCalls).toHaveLength(1);
+  });
+
   test("searchRanked returns [] by default and ranked fixtures when configured", async () => {
     expect(await new MockClient().searchRanked({ name: "x" })).toEqual([]);
     const c = new MockClient({

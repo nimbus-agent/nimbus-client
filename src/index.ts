@@ -44,6 +44,11 @@ export { IPCClient, type IPCClientOptions } from "./ipc-transport.js";
 export { MockClient, type MockClientFixtures } from "./mock-client.js";
 export {
   type AuditStatus,
+  type AuditSummary,
+  type AuditToolCallsParams,
+  type AuditToolCallsResult,
+  type AuditVerifyParams,
+  type AuditVerifyResult,
   type ConnectorHealthEntry,
   type ConnectorStatus,
   type ConsentRespondParams,
@@ -75,6 +80,7 @@ export {
   type RankedSearchParams,
   type SandboxDiag,
   type SessionTranscript,
+  type ToolCallLogEntry,
   type WatcherSummary,
 } from "./nimbus-client.js";
 export { getNimbusPaths, type NimbusPaths } from "./paths.js";

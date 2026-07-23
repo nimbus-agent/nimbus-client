@@ -147,6 +147,97 @@ describe("NimbusClient method dispatch", () => {
     expect(ipc.calls[0]?.params).toEqual({ since: 1, until: 2, sign: true });
   });
 
+  test("auditVerify defaults to full: undefined (incremental) and validates the result", async () => {
+    const ipc = new FakeIpc([{ ok: true, verifiedRows: 5, lastVerifiedId: 5 }]);
+    const result = await makeClient(ipc).auditVerify();
+    expect(ipc.calls[0]).toEqual({ method: "audit.verify", params: { full: undefined } });
+    expect(result).toEqual({ ok: true, verifiedRows: 5, lastVerifiedId: 5 });
+  });
+
+  test("auditVerify forwards full: true and surfaces a break", async () => {
+    const ipc = new FakeIpc([
+      {
+        ok: false,
+        verifiedRows: 2,
+        lastVerifiedId: 2,
+        firstBreakAtId: 3,
+        reason: "row_hash mismatch",
+      },
+    ]);
+    const result = await makeClient(ipc).auditVerify({ full: true });
+    expect(ipc.calls[0]?.params).toEqual({ full: true });
+    expect(result).toEqual({
+      ok: false,
+      verifiedRows: 2,
+      lastVerifiedId: 2,
+      firstBreakAtId: 3,
+      reason: "row_hash mismatch",
+    });
+  });
+
+  test("auditGetSummary routes to audit.getSummary and validates counts", async () => {
+    const ipc = new FakeIpc([
+      { byOutcome: { approved: 3, rejected: 1 }, byService: { github: 4 }, total: 4 },
+    ]);
+    const result = await makeClient(ipc).auditGetSummary();
+    expect(ipc.calls[0]).toEqual({ method: "audit.getSummary", params: undefined });
+    expect(result).toEqual({
+      byOutcome: { approved: 3, rejected: 1 },
+      byService: { github: 4 },
+      total: 4,
+    });
+  });
+
+  test("auditToolCalls forwards all filter params and validates the page", async () => {
+    const entry = {
+      id: 1,
+      sessionId: "s1",
+      toolId: "github.issue.create",
+      service: "github",
+      calledAt: 100,
+      durationMs: 5,
+      resultEnvelope: "{}",
+      status: "ok" as const,
+      params: { a: 1 },
+    };
+    const ipc = new FakeIpc([
+      { toolCalls: [entry], hasMore: true, nextCursor: { calledAt: 100, id: 1 } },
+    ]);
+    const result = await makeClient(ipc).auditToolCalls({
+      since: 1,
+      until: 2,
+      limit: 10,
+      sessionId: "s1",
+      toolId: "github.issue.create",
+      status: "ok",
+      cursor: { calledAt: 0, id: 0 },
+    });
+    expect(ipc.calls[0]).toEqual({
+      method: "audit.toolCalls",
+      params: {
+        since: 1,
+        until: 2,
+        limit: 10,
+        sessionId: "s1",
+        toolId: "github.issue.create",
+        status: "ok",
+        cursor: { calledAt: 0, id: 0 },
+      },
+    });
+    expect(result).toEqual({
+      toolCalls: [entry],
+      hasMore: true,
+      nextCursor: { calledAt: 100, id: 1 },
+    });
+  });
+
+  test("auditToolCalls tolerates no params and a null nextCursor", async () => {
+    const ipc = new FakeIpc([{ toolCalls: [], hasMore: false, nextCursor: null }]);
+    const result = await makeClient(ipc).auditToolCalls();
+    expect(ipc.calls[0]?.method).toBe("audit.toolCalls");
+    expect(result).toEqual({ toolCalls: [], hasMore: false, nextCursor: null });
+  });
+
   test("consentRespond sends requestId + approved and validates { ok }", async () => {
     const ipc = new FakeIpc([{ ok: true }]);
     const result = await makeClient(ipc).consentRespond({ requestId: "r1", approved: true });
