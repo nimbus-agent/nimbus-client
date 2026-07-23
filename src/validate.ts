@@ -10,6 +10,9 @@
  */
 
 import type {
+  AuditSummary,
+  AuditToolCallsResult,
+  AuditVerifyResult,
   ConnectorHealthEntry,
   ConnectorStatus,
   DiagSnapshot,
@@ -32,6 +35,7 @@ import type {
   RankedSearchItem,
   SandboxDiag,
   SessionTranscript,
+  ToolCallLogEntry,
   WatcherSummary,
 } from "./nimbus-client.js";
 
@@ -186,6 +190,81 @@ export function validateQuerySql(method: string, v: unknown): { rows: Record<str
 
 export function validateAuditList(method: string, v: unknown): unknown[] {
   return arr(method, v);
+}
+
+/** Result of `audit.verify`. */
+export function validateAuditVerify(method: string, v: unknown): AuditVerifyResult {
+  const o = record(method, v);
+  const result: AuditVerifyResult = {
+    ok: bool(method, o, "ok"),
+    verifiedRows: num(method, o, "verifiedRows"),
+    lastVerifiedId: num(method, o, "lastVerifiedId"),
+  };
+  if (o["firstBreakAtId"] !== undefined) result.firstBreakAtId = num(method, o, "firstBreakAtId");
+  if (o["reason"] !== undefined) result.reason = str(method, o, "reason");
+  return result;
+}
+
+function validateNumberRecord(method: string, v: unknown, field: string): Record<string, number> {
+  const o = record(method, v);
+  for (const val of Object.values(o)) {
+    if (typeof val !== "number" || !Number.isFinite(val)) {
+      throw new IpcResponseError(method, `"${field}" values must be numbers`);
+    }
+  }
+  return o as Record<string, number>;
+}
+
+/** Result of `audit.getSummary`. */
+export function validateAuditSummary(method: string, v: unknown): AuditSummary {
+  const o = record(method, v);
+  return {
+    byOutcome: validateNumberRecord(method, o["byOutcome"], "byOutcome"),
+    byService: validateNumberRecord(method, o["byService"], "byService"),
+    total: num(method, o, "total"),
+  };
+}
+
+function validateToolCallLogEntry(method: string, v: unknown): ToolCallLogEntry {
+  const o = record(method, v);
+  const sessionId = o["sessionId"];
+  if (sessionId !== null && typeof sessionId !== "string") {
+    throw new IpcResponseError(method, `tool call "sessionId" must be a string or null`);
+  }
+  const status = o["status"];
+  if (status !== "ok" && status !== "error") {
+    throw new IpcResponseError(method, `tool call "status" must be "ok" or "error"`);
+  }
+  return {
+    id: num(method, o, "id"),
+    sessionId,
+    toolId: str(method, o, "toolId"),
+    service: str(method, o, "service"),
+    calledAt: num(method, o, "calledAt"),
+    durationMs: num(method, o, "durationMs"),
+    resultEnvelope: str(method, o, "resultEnvelope"),
+    status,
+    params: o["params"],
+  };
+}
+
+function validateToolCallsCursor(
+  method: string,
+  v: unknown,
+): { calledAt: number; id: number } | null {
+  if (v === null) return null;
+  const o = record(method, v);
+  return { calledAt: num(method, o, "calledAt"), id: num(method, o, "id") };
+}
+
+/** Result of `audit.toolCalls`. */
+export function validateAuditToolCalls(method: string, v: unknown): AuditToolCallsResult {
+  const o = record(method, v);
+  return {
+    toolCalls: arr(method, o["toolCalls"]).map((t) => validateToolCallLogEntry(method, t)),
+    hasMore: bool(method, o, "hasMore"),
+    nextCursor: validateToolCallsCursor(method, o["nextCursor"]),
+  };
 }
 
 export function validateEgressHead(method: string, v: unknown): EgressHead {

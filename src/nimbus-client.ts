@@ -36,6 +36,9 @@ import {
   validateAgentInvoke,
   validateAgentSession,
   validateAuditList,
+  validateAuditSummary,
+  validateAuditToolCalls,
+  validateAuditVerify,
   validateDiagSnapshot,
   validateDiagVersion,
   validateEgressHead,
@@ -198,6 +201,88 @@ export type EgressProveWindowResult = {
   /** Whole-ledger verify — the window claim is only sound if this is `ok`. */
   verify: EgressVerifyResult;
   receipt?: EgressReceipt;
+};
+
+/**
+ * Result of {@link NimbusClient.auditVerify}: an audit-chain hash-chain
+ * verify pass. Mirrors the Gateway's `AuditVerifyResult` (`db/audit-verify.ts`).
+ */
+export type AuditVerifyResult = {
+  ok: boolean;
+  verifiedRows: number;
+  lastVerifiedId: number;
+  /** Row id where the chain first broke, when `ok === false`. */
+  firstBreakAtId?: number;
+  reason?: string;
+};
+
+/**
+ * Parameters for {@link NimbusClient.auditVerify}.
+ *
+ * When `full` is omitted or `false`, the Gateway verifies only the rows
+ * appended since the last verified watermark and, on success, ADVANCES that
+ * watermark (`LocalIndex.setAuditVerifiedThroughId`) — so calling this with
+ * the defaults has a side effect on the Gateway: a second incremental call
+ * right after a successful one verifies zero new rows. Pass `full: true` for
+ * an idempotent whole-chain verify.
+ */
+export type AuditVerifyParams = {
+  full?: boolean;
+};
+
+/**
+ * Audit-log summary counts, as returned by {@link NimbusClient.auditGetSummary}.
+ * Mirrors `LocalIndex.getAuditSummary()` (`index/local-index.ts`).
+ */
+export type AuditSummary = {
+  /** Row count by `hitl_status` (e.g. "approved" | "rejected" | "not_required"). */
+  byOutcome: Record<string, number>;
+  /** Row count by the action-type prefix before its first `.`. */
+  byService: Record<string, number>;
+  total: number;
+};
+
+/**
+ * A single logged tool call, as returned by {@link NimbusClient.auditToolCalls}.
+ * Mirrors the Gateway's `ToolCallLogReadEntry` (`db/tool-call-log.ts`).
+ */
+export type ToolCallLogEntry = {
+  id: number;
+  sessionId: string | null;
+  toolId: string;
+  service: string;
+  calledAt: number;
+  durationMs: number;
+  resultEnvelope: string;
+  status: "ok" | "error";
+  /** Redacted params (or the loss-visible `{ truncated: true }` sentinel), or `null`. */
+  params: unknown;
+};
+
+/** Parameters for {@link NimbusClient.auditToolCalls}. */
+export type AuditToolCallsParams = {
+  /** Lower bound (inclusive) on `calledAt`, epoch ms. */
+  since?: number;
+  /** Upper bound (inclusive) on `calledAt`, epoch ms. */
+  until?: number;
+  /** Max rows. The Gateway clamps to 1..1000; default 100. */
+  limit?: number;
+  /**
+   * Restrict to one session. An empty string (`""`) is a distinct filter
+   * meaning "calls with no session" (`session_id IS NULL`), not "unset".
+   */
+  sessionId?: string;
+  toolId?: string;
+  status?: "ok" | "error";
+  /** Opaque pagination cursor from a previous page's `nextCursor`. */
+  cursor?: { calledAt: number; id: number };
+};
+
+/** Result of {@link NimbusClient.auditToolCalls}. */
+export type AuditToolCallsResult = {
+  toolCalls: ToolCallLogEntry[];
+  hasMore: boolean;
+  nextCursor: { calledAt: number; id: number } | null;
 };
 
 /** Parameters for {@link NimbusClient.consentRespond}: the reply to a `HitlRequest`. */
@@ -396,6 +481,9 @@ export interface NimbusClientLike {
   searchRanked(params?: RankedSearchParams): Promise<RankedSearchItem[]>;
   querySql(sql: string): Promise<{ rows: Record<string, unknown>[] }>;
   auditList(limit?: number): Promise<unknown[]>;
+  auditVerify(params?: AuditVerifyParams): Promise<AuditVerifyResult>;
+  auditGetSummary(): Promise<AuditSummary>;
+  auditToolCalls(params?: AuditToolCallsParams): Promise<AuditToolCallsResult>;
   egressHead(): Promise<EgressHead>;
   egressList(params?: EgressListParams): Promise<EgressListResult>;
   egressVerify(): Promise<EgressVerifyResult>;
@@ -636,6 +724,35 @@ export class NimbusClient implements NimbusClientLike {
   async auditList(limit?: number): Promise<unknown[]> {
     const raw = await this.ipc.call("audit.list", { limit: limit ?? 50 });
     return validateAuditList("audit.list", raw);
+  }
+
+  /**
+   * Verify the audit hash chain (read-only response, but see
+   * {@link AuditVerifyParams} — the default incremental mode advances a
+   * Gateway-side watermark as a side effect of calling it).
+   */
+  async auditVerify(params: AuditVerifyParams = {}): Promise<AuditVerifyResult> {
+    const raw = await this.ipc.call("audit.verify", { full: params.full });
+    return validateAuditVerify("audit.verify", raw);
+  }
+
+  /** Audit-log summary counts by outcome and by service (read-only). */
+  async auditGetSummary(): Promise<AuditSummary> {
+    return validateAuditSummary("audit.getSummary", await this.ipc.call("audit.getSummary"));
+  }
+
+  /** Paginated, filterable tool-call log (read-only). */
+  async auditToolCalls(params: AuditToolCallsParams = {}): Promise<AuditToolCallsResult> {
+    const raw = await this.ipc.call("audit.toolCalls", {
+      since: params.since,
+      until: params.until,
+      limit: params.limit,
+      sessionId: params.sessionId,
+      toolId: params.toolId,
+      status: params.status,
+      cursor: params.cursor,
+    });
+    return validateAuditToolCalls("audit.toolCalls", raw);
   }
 
   /** Egress ledger head hash + row count (read-only). */

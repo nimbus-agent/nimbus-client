@@ -5,6 +5,9 @@ import {
   validateAgentInvoke,
   validateAgentSession,
   validateAuditList,
+  validateAuditSummary,
+  validateAuditToolCalls,
+  validateAuditVerify,
   validateDiagSnapshot,
   validateDiagVersion,
   validateEgressHead,
@@ -145,6 +148,73 @@ describe("validate — happy paths", () => {
     expect(out.rows[0]?.sourceId).toBeNull();
   });
 
+  test("validateAuditVerify accepts a clean pass and a broken-chain result", () => {
+    expect(validateAuditVerify("m", { ok: true, verifiedRows: 5, lastVerifiedId: 5 })).toEqual({
+      ok: true,
+      verifiedRows: 5,
+      lastVerifiedId: 5,
+    });
+    expect(
+      validateAuditVerify("m", {
+        ok: false,
+        verifiedRows: 2,
+        lastVerifiedId: 2,
+        firstBreakAtId: 3,
+        reason: "row_hash mismatch at id 3",
+      }),
+    ).toEqual({
+      ok: false,
+      verifiedRows: 2,
+      lastVerifiedId: 2,
+      firstBreakAtId: 3,
+      reason: "row_hash mismatch at id 3",
+    });
+  });
+
+  test("validateAuditSummary accepts count records, including empty ones", () => {
+    expect(
+      validateAuditSummary("m", {
+        byOutcome: { approved: 3, rejected: 1 },
+        byService: { github: 4 },
+        total: 4,
+      }),
+    ).toEqual({ byOutcome: { approved: 3, rejected: 1 }, byService: { github: 4 }, total: 4 });
+    expect(validateAuditSummary("m", { byOutcome: {}, byService: {}, total: 0 })).toEqual({
+      byOutcome: {},
+      byService: {},
+      total: 0,
+    });
+  });
+
+  test("validateAuditToolCalls accepts a page with a null sessionId, params, and cursor", () => {
+    const out = validateAuditToolCalls("m", {
+      toolCalls: [
+        {
+          id: 1,
+          sessionId: null,
+          toolId: "github.issue.create",
+          service: "github",
+          calledAt: 100,
+          durationMs: 5,
+          resultEnvelope: "{}",
+          status: "ok",
+          params: { a: 1 },
+        },
+      ],
+      hasMore: true,
+      nextCursor: { calledAt: 100, id: 1 },
+    });
+    expect(out.toolCalls[0]?.sessionId).toBeNull();
+    expect(out.toolCalls[0]?.params).toEqual({ a: 1 });
+    expect(out.hasMore).toBe(true);
+    expect(out.nextCursor).toEqual({ calledAt: 100, id: 1 });
+  });
+
+  test("validateAuditToolCalls accepts a null nextCursor", () => {
+    const out = validateAuditToolCalls("m", { toolCalls: [], hasMore: false, nextCursor: null });
+    expect(out.nextCursor).toBeNull();
+  });
+
   test("validateGatewayPing accepts the core shape, optional drift, and passes extras through", () => {
     const out = validateGatewayPing("m", {
       version: "0.22.0",
@@ -254,6 +324,80 @@ describe("validate — rejections throw IpcResponseError", () => {
   test("egress row with a non-string/non-null sourceId", () => {
     expect(() => validateEgressList("m", { rows: [{ ...ROW, sourceId: 7 }] })).toThrow(
       /"sourceId" must be a string or null/,
+    );
+  });
+
+  test("validateAuditVerify rejects a missing lastVerifiedId", () => {
+    expect(() => validateAuditVerify("m", { ok: true, verifiedRows: 1 })).toThrow(
+      /"lastVerifiedId" must be a finite number/,
+    );
+  });
+
+  test("validateAuditSummary rejects a non-numeric byOutcome value", () => {
+    expect(() =>
+      validateAuditSummary("m", { byOutcome: { approved: "many" }, byService: {}, total: 0 }),
+    ).toThrow(/"byOutcome" values must be numbers/);
+  });
+
+  test("validateAuditSummary rejects a non-numeric byService value", () => {
+    expect(() =>
+      validateAuditSummary("m", { byOutcome: {}, byService: { github: "many" }, total: 0 }),
+    ).toThrow(/"byService" values must be numbers/);
+  });
+
+  test("validateAuditToolCalls rejects a non-string/non-null sessionId", () => {
+    expect(() =>
+      validateAuditToolCalls("m", {
+        toolCalls: [
+          {
+            id: 1,
+            sessionId: 7,
+            toolId: "t",
+            service: "s",
+            calledAt: 1,
+            durationMs: 1,
+            resultEnvelope: "{}",
+            status: "ok",
+            params: null,
+          },
+        ],
+        hasMore: false,
+        nextCursor: null,
+      }),
+    ).toThrow(/"sessionId" must be a string or null/);
+  });
+
+  test("validateAuditToolCalls rejects an invalid status", () => {
+    expect(() =>
+      validateAuditToolCalls("m", {
+        toolCalls: [
+          {
+            id: 1,
+            sessionId: null,
+            toolId: "t",
+            service: "s",
+            calledAt: 1,
+            durationMs: 1,
+            resultEnvelope: "{}",
+            status: "pending",
+            params: null,
+          },
+        ],
+        hasMore: false,
+        nextCursor: null,
+      }),
+    ).toThrow(/"status" must be "ok" or "error"/);
+  });
+
+  test("validateAuditToolCalls rejects a non-array toolCalls", () => {
+    expect(() =>
+      validateAuditToolCalls("m", { toolCalls: "nope", hasMore: false, nextCursor: null }),
+    ).toThrow(/expected an array/);
+  });
+
+  test("validateAuditToolCalls rejects a missing nextCursor field", () => {
+    expect(() => validateAuditToolCalls("m", { toolCalls: [], hasMore: false })).toThrow(
+      IpcResponseError,
     );
   });
 
