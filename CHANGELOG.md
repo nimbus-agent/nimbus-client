@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.9.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.8.0...client-v0.9.0) (2026-07-23)
+
+
+### Features
+
+* **audit:** expose audit.verify, audit.getSummary, and audit.toolCalls ([#23](https://github.com/nimbus-agent/nimbus-client/issues/23)) ([4c0a78c](https://github.com/nimbus-agent/nimbus-client/commit/4c0a78c88ead8a9880f55e7a6a33d05ac8a9141d))
+
 ## [0.8.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.7.1...client-v0.8.0) (2026-07-23)
 
 
