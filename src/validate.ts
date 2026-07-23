@@ -14,8 +14,17 @@ import type {
   AuditToolCallsResult,
   AuditVerifyResult,
   CiFinding,
+  ConnectorAddMcpResult,
+  ConnectorAuthResult,
   ConnectorHealthEntry,
+  ConnectorHealthHistoryEntry,
+  ConnectorReindexResult,
+  ConnectorRemoveResult,
+  ConnectorSetConfigResult,
   ConnectorStatus,
+  ConnectorStatusResult,
+  ConnectorSyncStatus,
+  ConnectorSyncTelemetry,
   DeployPreflightResult,
   DiagSnapshot,
   DiagVersion,
@@ -52,6 +61,12 @@ import type {
   SessionTranscript,
   ToolCallLogEntry,
   WatcherSummary,
+  WorkflowListResult,
+  WorkflowListRunsResult,
+  WorkflowRow,
+  WorkflowRunHistoryRow,
+  WorkflowRunResult,
+  WorkflowStepResult,
 } from "./nimbus-client.js";
 
 /** Thrown when a Gateway response does not match its expected shape. */
@@ -104,6 +119,33 @@ function optStr(o: Record<string, unknown>, key: string): string | undefined {
 function optNum(o: Record<string, unknown>, key: string): number | undefined {
   const v = o[key];
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+function nullableNum(method: string, o: Record<string, unknown>, key: string): number | null {
+  const v = o[key];
+  if (v === null) return null;
+  if (typeof v !== "number" || !Number.isFinite(v)) {
+    throw new IpcResponseError(method, `"${key}" must be a number or null`);
+  }
+  return v;
+}
+
+function nullableStr(method: string, o: Record<string, unknown>, key: string): string | null {
+  const v = o[key];
+  if (v === null) return null;
+  if (typeof v !== "string") {
+    throw new IpcResponseError(method, `"${key}" must be a string or null`);
+  }
+  return v;
+}
+
+function nullableBool(method: string, o: Record<string, unknown>, key: string): boolean | null {
+  const v = o[key];
+  if (v === null) return null;
+  if (typeof v !== "boolean") {
+    throw new IpcResponseError(method, `"${key}" must be a boolean or null`);
+  }
+  return v;
 }
 
 /** `{ reply?: string } & Record<string, unknown>` — result of `agent.invoke`. */
@@ -858,5 +900,245 @@ export function validateDeployPreflight(method: string, v: unknown): DeployPrefl
         validatePrFinding,
       ),
     },
+  };
+}
+
+const CONNECTOR_STATUS_VALUES = new Set<string>(["ok", "syncing", "paused", "backoff", "error"]);
+
+const CONNECTOR_DEPTH_VALUES = new Set<string>(["metadata_only", "summary", "full"]);
+
+/** A single `connector.listStatus` / `connector.status` row. Mirrors the Gateway's `SyncStatus`. */
+export function validateConnectorSyncStatus(method: string, v: unknown): ConnectorSyncStatus {
+  const o = record(method, v);
+  const status = o["status"];
+  if (typeof status !== "string" || !CONNECTOR_STATUS_VALUES.has(status)) {
+    throw new IpcResponseError(method, `"status" must be a recognised connector status`);
+  }
+  const depth = o["depth"];
+  if (typeof depth !== "string" || !CONNECTOR_DEPTH_VALUES.has(depth)) {
+    throw new IpcResponseError(method, `"depth" must be "metadata_only", "summary", or "full"`);
+  }
+  const result: ConnectorSyncStatus = {
+    serviceId: str(method, o, "serviceId"),
+    status: status as ConnectorSyncStatus["status"],
+    lastSyncAt: nullableNum(method, o, "lastSyncAt"),
+    nextSyncAt: nullableNum(method, o, "nextSyncAt"),
+    intervalMs: num(method, o, "intervalMs"),
+    itemCount: num(method, o, "itemCount"),
+    lastError: nullableStr(method, o, "lastError"),
+    consecutiveFailures: num(method, o, "consecutiveFailures"),
+    depth: depth as ConnectorSyncStatus["depth"],
+    enabled: bool(method, o, "enabled"),
+  };
+  const healthState = optStr(o, "healthState");
+  if (healthState !== undefined) result.healthState = healthState;
+  if (o["healthRetryAfterMs"] !== undefined) {
+    result.healthRetryAfterMs = nullableNum(method, o, "healthRetryAfterMs");
+  }
+  return result;
+}
+
+/** Result of `connector.listStatus`. */
+export function validateConnectorSyncStatusList(method: string, v: unknown): ConnectorSyncStatus[] {
+  return arr(method, v).map((r) => validateConnectorSyncStatus(method, r));
+}
+
+function validateConnectorSyncTelemetry(method: string, v: unknown): ConnectorSyncTelemetry {
+  const o = record(method, v);
+  return {
+    startedAt: num(method, o, "startedAt"),
+    durationMs: num(method, o, "durationMs"),
+    itemsUpserted: num(method, o, "itemsUpserted"),
+    itemsDeleted: num(method, o, "itemsDeleted"),
+    bytesTransferred: nullableNum(method, o, "bytesTransferred"),
+    hadMore: bool(method, o, "hadMore"),
+    errorMsg: nullableStr(method, o, "errorMsg"),
+  };
+}
+
+/** Result of `connector.status`. `telemetry` is present only when `includeStats: true` was passed. */
+export function validateConnectorStatusResult(method: string, v: unknown): ConnectorStatusResult {
+  const base = validateConnectorSyncStatus(method, v);
+  const o = record(method, v);
+  if (o["telemetry"] === undefined) return base;
+  return {
+    ...base,
+    telemetry: arr(method, o["telemetry"]).map((t) => validateConnectorSyncTelemetry(method, t)),
+  };
+}
+
+function validateConnectorHealthHistoryEntry(
+  method: string,
+  v: unknown,
+): ConnectorHealthHistoryEntry {
+  const o = record(method, v);
+  return {
+    id: num(method, o, "id"),
+    connectorId: str(method, o, "connectorId"),
+    fromState: nullableStr(method, o, "fromState"),
+    toState: str(method, o, "toState"),
+    reason: nullableStr(method, o, "reason"),
+    occurredAtMs: num(method, o, "occurredAtMs"),
+  };
+}
+
+/** Result of `connector.healthHistory`. */
+export function validateConnectorHealthHistory(
+  method: string,
+  v: unknown,
+): ConnectorHealthHistoryEntry[] {
+  return arr(method, v).map((r) => validateConnectorHealthHistoryEntry(method, r));
+}
+
+/** Result of `connector.setConfig`. */
+export function validateConnectorSetConfig(method: string, v: unknown): ConnectorSetConfigResult {
+  const o = record(method, v);
+  return {
+    service: str(method, o, "service"),
+    intervalMs: nullableNum(method, o, "intervalMs"),
+    depth: nullableStr(method, o, "depth"),
+    enabled: nullableBool(method, o, "enabled"),
+  };
+}
+
+/** Result of `connector.reindex`. */
+export function validateConnectorReindex(method: string, v: unknown): ConnectorReindexResult {
+  const o = record(method, v);
+  const depth = o["depth"];
+  if (typeof depth !== "string" || !CONNECTOR_DEPTH_VALUES.has(depth)) {
+    throw new IpcResponseError(method, `"depth" must be "metadata_only", "summary", or "full"`);
+  }
+  const mode = o["mode"];
+  if (mode !== "shallow" && mode !== "deepen" && mode !== "same") {
+    throw new IpcResponseError(method, `"mode" must be "shallow", "deepen", or "same"`);
+  }
+  return {
+    itemsAffected: num(method, o, "itemsAffected"),
+    depth: depth as ConnectorReindexResult["depth"],
+    mode,
+  };
+}
+
+/** Result of `connector.auth`: identical across every provider. */
+export function validateConnectorAuth(method: string, v: unknown): ConnectorAuthResult {
+  const o = record(method, v);
+  if (!bool(method, o, "ok")) {
+    throw new IpcResponseError(method, `"ok" must be true`);
+  }
+  const scopesGranted = arr(method, o["scopesGranted"]).map((s) => {
+    if (typeof s !== "string") {
+      throw new IpcResponseError(method, `"scopesGranted" must contain only strings`);
+    }
+    return s;
+  });
+  return { ok: true, serviceId: str(method, o, "serviceId"), scopesGranted };
+}
+
+/**
+ * A HITL-gated `connector.*` result: either the denied/disconnected shape
+ * (`{ status: "rejected", reason }`) or the caller-supplied success shape.
+ */
+function validateGatedOrElse<T>(
+  method: string,
+  v: unknown,
+  validateSuccess: (method: string, o: Record<string, unknown>) => T,
+): T | { status: "rejected"; reason: string } {
+  const o = record(method, v);
+  if (o["status"] === "rejected") {
+    return { status: "rejected", reason: str(method, o, "reason") };
+  }
+  return validateSuccess(method, o);
+}
+
+/** Result of `connector.addMcp`. See {@link ConnectorAddMcpResult} for the dual-shape contract. */
+export function validateConnectorAddMcp(method: string, v: unknown): ConnectorAddMcpResult {
+  return validateGatedOrElse(method, v, (m, o) => {
+    if (!bool(m, o, "ok")) {
+      throw new IpcResponseError(m, `"ok" must be true`);
+    }
+    return { ok: true as const, serviceId: str(m, o, "serviceId") };
+  });
+}
+
+/** Result of `connector.remove`. See {@link ConnectorRemoveResult} for the dual-shape contract. */
+export function validateConnectorRemove(method: string, v: unknown): ConnectorRemoveResult {
+  return validateGatedOrElse(method, v, (m, o) => {
+    if (!bool(m, o, "ok")) {
+      throw new IpcResponseError(m, `"ok" must be true`);
+    }
+    const vaultKeysRemoved = arr(m, o["vaultKeysRemoved"]).map((k) => {
+      if (typeof k !== "string") {
+        throw new IpcResponseError(m, `"vaultKeysRemoved" must contain only strings`);
+      }
+      return k;
+    });
+    return { ok: true as const, itemsDeleted: num(m, o, "itemsDeleted"), vaultKeysRemoved };
+  });
+}
+
+function validateWorkflowRow(method: string, v: unknown): WorkflowRow {
+  const o = record(method, v);
+  return {
+    id: str(method, o, "id"),
+    name: str(method, o, "name"),
+    description: nullableStr(method, o, "description"),
+    steps_json: str(method, o, "steps_json"),
+    created_at: num(method, o, "created_at"),
+    updated_at: num(method, o, "updated_at"),
+  };
+}
+
+/** Result of `workflow.list`. */
+export function validateWorkflowList(method: string, v: unknown): WorkflowListResult {
+  const o = record(method, v);
+  return { workflows: arr(method, o["workflows"]).map((w) => validateWorkflowRow(method, w)) };
+}
+
+/** Result of `workflow.save`. */
+export function validateWorkflowSave(method: string, v: unknown): { id: string } {
+  const o = record(method, v);
+  return { id: str(method, o, "id") };
+}
+
+function validateWorkflowRunHistoryRow(method: string, v: unknown): WorkflowRunHistoryRow {
+  const o = record(method, v);
+  return {
+    id: str(method, o, "id"),
+    startedAt: num(method, o, "startedAt"),
+    finishedAt: nullableNum(method, o, "finishedAt"),
+    durationMs: nullableNum(method, o, "durationMs"),
+    status: str(method, o, "status"),
+    errorMsg: nullableStr(method, o, "errorMsg"),
+    dryRun: bool(method, o, "dryRun"),
+    paramsOverrideJson: nullableStr(method, o, "paramsOverrideJson"),
+    triggeredBy: str(method, o, "triggeredBy"),
+  };
+}
+
+/** Result of `workflow.listRuns`. */
+export function validateWorkflowListRuns(method: string, v: unknown): WorkflowListRunsResult {
+  const o = record(method, v);
+  return { runs: arr(method, o["runs"]).map((r) => validateWorkflowRunHistoryRow(method, r)) };
+}
+
+function validateWorkflowStepResult(method: string, v: unknown): WorkflowStepResult {
+  const o = record(method, v);
+  const result: WorkflowStepResult = { status: str(method, o, "status") };
+  const label = optStr(o, "label");
+  if (label !== undefined) result.label = label;
+  const output = optStr(o, "output");
+  if (output !== undefined) result.output = output;
+  const error = optStr(o, "error");
+  if (error !== undefined) result.error = error;
+  return result;
+}
+
+/** Result of `workflow.run`. */
+export function validateWorkflowRun(method: string, v: unknown): WorkflowRunResult {
+  const o = record(method, v);
+  return {
+    runId: str(method, o, "runId"),
+    dryRun: bool(method, o, "dryRun"),
+    stepResults: arr(method, o["stepResults"]).map((s) => validateWorkflowStepResult(method, s)),
   };
 }
