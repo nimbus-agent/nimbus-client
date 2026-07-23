@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.11.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.10.0...client-v0.11.0) (2026-07-23)
+
+
+### Features
+
+* expose connector.* and workflow.* (Stage 1, waves 1g + 1h — completes Stage 1) ([#28](https://github.com/nimbus-agent/nimbus-client/issues/28)) ([8cee842](https://github.com/nimbus-agent/nimbus-client/commit/8cee842a4a93be06f619a82b8e9183e6f647b5f0))
+
 ## [0.10.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.9.0...client-v0.10.0) (2026-07-23)
 
 
