@@ -86,3 +86,20 @@ jobs:
           for (const k of ['NimbusClient','MockClient','IPCClient','IpcResponseError']) {
           if (typeof m[k] === 'undefined') throw new Error('CJS export missing: ' + k); }
           console.log('CJS require OK');"
+
+      # The require-smoke above CANNOT catch a build-machine path baked into the
+      # bundle, because it runs on the machine that baked it — where the path
+      # resolves. 0.7.0 shipped exactly that: a module-scope
+      # `fileURLToPath(import.meta.url)` reached through the SDK root got frozen
+      # to `/home/runner/work/...`, so `require("@nimbus-dev/client")` threw
+      # ERR_INVALID_FILE_URL_PATH for every consumer while CI stayed green.
+      # An absolute path in a published bundle is never correct; assert there is
+      # none, which is machine-independent and so actually catches it.
+      - name: The bundle must not embed a build-machine path
+        run: |
+          if grep -o 'file:///[^"]*' dist/index.cjs; then
+            echo "::error::dist/index.cjs embeds an absolute build-machine file:// URL (shown above). \
+          Something reached import.meta.url at module scope and the bundler froze this machine's path into it."
+            exit 1
+          fi
+          echo "no embedded build-machine paths"

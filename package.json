@@ -41,7 +41,7 @@
     "prepublishOnly": "bun run build && bun run typecheck && bun test"
   },
   "dependencies": {
-    "@nimbus-dev/sdk": "^1.5.0"
+    "@nimbus-dev/sdk": "^1.5.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.1",
