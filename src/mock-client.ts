@@ -23,6 +23,11 @@ import type {
   PreflightParams,
 } from "./agents.js";
 import type {
+  AuditSummary,
+  AuditToolCallsParams,
+  AuditToolCallsResult,
+  AuditVerifyParams,
+  AuditVerifyResult,
   ConsentRespondParams,
   DiagSnapshot,
   DiagVersion,
@@ -55,6 +60,9 @@ export type MockClientFixtures = {
   streamTokens?: string[];
   reply?: string;
   sqlRows?: Record<string, unknown>[];
+  auditVerify?: AuditVerifyResult;
+  auditSummary?: AuditSummary;
+  auditToolCalls?: AuditToolCallsResult;
   egressHead?: EgressHead;
   egressRows?: EgressRow[];
   egressVerify?: EgressVerifyResult;
@@ -204,6 +212,18 @@ export class MockClient implements NimbusClientLike {
 
   async auditList(_limit?: number): Promise<unknown[]> {
     return [];
+  }
+
+  async auditVerify(_params?: AuditVerifyParams): Promise<AuditVerifyResult> {
+    return this.fixtures.auditVerify ?? { ok: true, verifiedRows: 0, lastVerifiedId: 0 };
+  }
+
+  async auditGetSummary(): Promise<AuditSummary> {
+    return this.fixtures.auditSummary ?? { byOutcome: {}, byService: {}, total: 0 };
+  }
+
+  async auditToolCalls(_params?: AuditToolCallsParams): Promise<AuditToolCallsResult> {
+    return this.fixtures.auditToolCalls ?? { toolCalls: [], hasMore: false, nextCursor: null };
   }
 
   async egressHead(): Promise<EgressHead> {

@@ -25,4 +25,11 @@ describe("NimbusClient typed surface", () => {
     expect(typeof proto["egressVerify"]).toBe("function");
     expect(typeof proto["egressProveWindow"]).toBe("function");
   });
+
+  test("instance exposes audit read methods", () => {
+    const proto = NimbusClient.prototype as unknown as Record<string, unknown>;
+    expect(typeof proto["auditVerify"]).toBe("function");
+    expect(typeof proto["auditGetSummary"]).toBe("function");
+    expect(typeof proto["auditToolCalls"]).toBe("function");
+  });
 });
