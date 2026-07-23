@@ -1009,8 +1009,8 @@ export function validateConnectorReindex(method: string, v: unknown): ConnectorR
     throw new IpcResponseError(method, `"depth" must be "metadata_only", "summary", or "full"`);
   }
   const mode = o["mode"];
-  if (mode !== "shallow" && mode !== "deepen") {
-    throw new IpcResponseError(method, `"mode" must be "shallow" or "deepen"`);
+  if (mode !== "shallow" && mode !== "deepen" && mode !== "same") {
+    throw new IpcResponseError(method, `"mode" must be "shallow", "deepen", or "same"`);
   }
   return {
     itemsAffected: num(method, o, "itemsAffected"),

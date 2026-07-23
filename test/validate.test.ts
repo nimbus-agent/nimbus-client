@@ -906,10 +906,26 @@ describe("validateConnectorReindex", () => {
     ).toEqual({ itemsAffected: 0, depth: "full", mode: "deepen" });
   });
 
+  test("accepts the gateway's third mode variant", () => {
+    // `connectors/reindex.ts:14` declares "deepen" | "shallow" | "same". "same" is
+    // currently unreachable in reindexConnector(), but the declared type is the
+    // contract — rejecting it would throw on a legitimate response if that branch
+    // is ever activated.
+    expect(
+      validateConnectorReindex("m", { itemsAffected: 0, depth: "summary", mode: "same" }),
+    ).toEqual({ itemsAffected: 0, depth: "summary", mode: "same" });
+  });
+
   test("rejects an unrecognised mode", () => {
     expect(() =>
       validateConnectorReindex("m", { itemsAffected: 0, depth: "full", mode: "bogus" }),
-    ).toThrow(/"mode" must be "shallow" or "deepen"/);
+    ).toThrow(/"mode" must be "shallow", "deepen", or "same"/);
+  });
+
+  test("rejects an unrecognised depth", () => {
+    expect(() =>
+      validateConnectorReindex("m", { itemsAffected: 0, depth: "bogus", mode: "shallow" }),
+    ).toThrow(/"depth" must be/);
   });
 });
 

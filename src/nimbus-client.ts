@@ -857,7 +857,14 @@ export type ConnectorReindexParams = {
 export type ConnectorReindexResult = {
   itemsAffected: number;
   depth: "metadata_only" | "summary" | "full";
-  mode: "shallow" | "deepen";
+  /**
+   * The gateway's `ReindexResult` declares three variants
+   * (`connectors/reindex.ts:14`). `"same"` is currently unreachable —
+   * `reindexConnector()` only ever constructs `"shallow"` or `"deepen"` — but the
+   * declared type is the contract, so accepting it keeps this from throwing on a
+   * legitimate response if that branch is ever activated.
+   */
+  mode: "shallow" | "deepen" | "same";
 };
 
 /**
@@ -1543,6 +1550,7 @@ export class NimbusClient implements NimbusClientLike {
    * (I2); unlike {@link connectorAddMcp}/{@link connectorRemove}, a denial
    * here REJECTS the promise rather than resolving to a {@link GatedRejection}.
    */
+  // Mutates state: re-reads and rewrites the local index for the service.
   async connectorReindex(params: ConnectorReindexParams): Promise<ConnectorReindexResult> {
     const raw = await this.ipc.call("connector.reindex", {
       service: params.service,
