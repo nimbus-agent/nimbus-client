@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.6.1](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.6.0...client-v0.6.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* **ci:** retry the provenance audit, not just the install ([#10](https://github.com/nimbus-agent/nimbus-client/issues/10)) ([642d19b](https://github.com/nimbus-agent/nimbus-client/commit/642d19ba8e2b65bd5a2a3ceb6235fcd18a04e985))
+
 ## [0.6.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.5.0...client-v0.6.0) (2026-07-22)
 
 
