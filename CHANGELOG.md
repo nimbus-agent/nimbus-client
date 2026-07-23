@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.6.2](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.6.1...client-v0.6.2) (2026-07-23)
+
+
+### Bug Fixes
+
+* **ci:** widen the publish-verification retry budget and defeat the cached packument ([#13](https://github.com/nimbus-agent/nimbus-client/issues/13)) ([e98952c](https://github.com/nimbus-agent/nimbus-client/commit/e98952cfbf225424d1931ceb213810665a8cd80e))
+
 ## [0.6.1](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.6.0...client-v0.6.1) (2026-07-22)
 
 
