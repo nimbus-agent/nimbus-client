@@ -1,4 +1,28 @@
 import type {
+  AgentName,
+  BriefFor,
+  CatchupBrief,
+  ConflictBrief,
+  ExpertBrief,
+  GhostBrief,
+  HuddleBrief,
+  ImpactBrief,
+  JanitorBrief,
+  PreflightBrief,
+} from "@nimbus-dev/sdk";
+
+import type {
+  AgentBriefEvent,
+  CatchupParams,
+  ConflictsParams,
+  ExpertParams,
+  GhostParams,
+  HuddleParams,
+  ImpactParams,
+  JanitorParams,
+  PreflightParams,
+} from "./agents.js";
+import type {
   EgressHead,
   EgressListParams,
   EgressListResult,
@@ -29,6 +53,16 @@ export type MockClientFixtures = {
   egressRows?: EgressRow[];
   egressVerify?: EgressVerifyResult;
   egressProveWindow?: EgressProveWindowResult;
+  agentBriefs?: Partial<{
+    expert: ExpertBrief;
+    impact: ImpactBrief;
+    catchup: CatchupBrief;
+    ghost: GhostBrief;
+    conflicts: ConflictBrief;
+    huddle: HuddleBrief;
+    janitor: JanitorBrief;
+    preflight: PreflightBrief;
+  }>;
 };
 
 /**
@@ -85,6 +119,46 @@ export class MockClient implements NimbusClientLike {
 
   subscribeHitl(_handler: (req: HitlRequest) => void): { dispose(): void } {
     return { dispose: () => undefined };
+  }
+
+  subscribeAgentBrief<A extends AgentName>(
+    _agent: A,
+    _handler: (ev: AgentBriefEvent<A>) => void,
+  ): { dispose(): void } {
+    return { dispose: () => {} };
+  }
+
+  private brief<A extends AgentName>(agent: A): Promise<BriefFor<A>> {
+    const fixture = this.fixtures.agentBriefs?.[agent];
+    if (fixture === undefined) {
+      return Promise.reject(new Error(`MockClient: no agentBriefs.${agent} fixture configured`));
+    }
+    return Promise.resolve(fixture as BriefFor<A>);
+  }
+
+  async agentsExpert(_p: ExpertParams): Promise<ExpertBrief> {
+    return this.brief("expert");
+  }
+  async agentsImpact(_p: ImpactParams): Promise<ImpactBrief> {
+    return this.brief("impact");
+  }
+  async agentsCatchup(_p?: CatchupParams): Promise<CatchupBrief> {
+    return this.brief("catchup");
+  }
+  async agentsGhost(_p: GhostParams): Promise<GhostBrief> {
+    return this.brief("ghost");
+  }
+  async agentsConflicts(_p: ConflictsParams): Promise<ConflictBrief> {
+    return this.brief("conflicts");
+  }
+  async agentsHuddle(_p?: HuddleParams): Promise<HuddleBrief> {
+    return this.brief("huddle");
+  }
+  async agentsJanitor(_p: JanitorParams): Promise<JanitorBrief> {
+    return this.brief("janitor");
+  }
+  async agentsPreflight(_p: PreflightParams): Promise<PreflightBrief> {
+    return this.brief("preflight");
   }
 
   async getSessionTranscript(_params: {

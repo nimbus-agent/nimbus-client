@@ -5,7 +5,7 @@
     "": {
       "name": "@nimbus-dev/client",
       "dependencies": {
-        "@nimbus-dev/sdk": "^1.4.0",
+        "@nimbus-dev/sdk": "^1.5.0",
       },
       "devDependencies": {
         "@biomejs/biome": "^2.5.1",
@@ -33,7 +33,7 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.4", "", { "os": "win32", "cpu": "x64" }, "sha512-U1jaluLw1qQc2Tx7/CeSoL9N5XcqIH+GWjpUAy1ouB5nVjSCMNO+NNHdY3RAs8zxNurLWAdj6pehQdCA2zyU+Q=="],
 
-    "@nimbus-dev/sdk": ["@nimbus-dev/sdk@1.4.0", "", {}, "sha512-kqHQyGrLUoBgZjyrse8gMjD5VMHCJ4Oe02DTlSAPLABQ4RbYNT75b45sxKdfqpuuiUqEfljFlLtv4hZNsWyGrg=="],
+    "@nimbus-dev/sdk": ["@nimbus-dev/sdk@1.5.0", "", {}, "sha512-dAa87gn3CHNtJyb3mlg4dXqiLa56bFBiTR1+rtz8YoCPl8DUMyANpU/ZJ8Sym+6bovWuIrB1z8R9ETfKj6dRXw=="],
 
     "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 

@@ -4,7 +4,35 @@
 
 // Re-exported so consumers (nimbus-vscode) can name the item shape without
 // taking a direct dependency on @nimbus-dev/sdk.
-export type { NimbusItem } from "@nimbus-dev/sdk";
+export type {
+  AgentBrief,
+  AgentName,
+  BriefFor,
+  CatchupBrief,
+  ConflictBrief,
+  ExpertBrief,
+  GhostBrief,
+  HuddleBrief,
+  ImpactBrief,
+  JanitorBrief,
+  NimbusItem,
+  PreflightBrief,
+} from "@nimbus-dev/sdk";
+export {
+  AgentBriefError,
+  type AgentBriefEvent,
+  type AgentParamsFor,
+  AgentTimeoutError,
+  type CatchupParams,
+  type ConflictsParams,
+  DEFAULT_AGENT_TIMEOUT_MS,
+  type ExpertParams,
+  type GhostParams,
+  type HuddleParams,
+  type ImpactParams,
+  type JanitorParams,
+  type PreflightParams,
+} from "./agents.js";
 export {
   discoverSocketPath,
   type GatewayStateFile,

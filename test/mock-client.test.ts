@@ -131,4 +131,22 @@ describe("MockClient", () => {
     expect(r).toHaveLength(1);
     expect(r[0]?.name).toBe("Plan");
   });
+
+  test("agentsExpert returns the configured fixture", async () => {
+    const brief = {
+      agentVersion: 1 as const,
+      generatedAt: 1,
+      latencyMs: 1,
+      gaps: [],
+      kind: "expert" as const,
+      query: { topicOrFile: "x" },
+      ranked: [],
+    };
+    const c = new MockClient({ agentBriefs: { expert: brief } });
+    expect(await c.agentsExpert({ topicOrFile: "x" })).toEqual(brief);
+  });
+
+  test("an unconfigured agent rejects with a named reason", async () => {
+    await expect(new MockClient().agentsGhost({ file: "a" })).rejects.toThrow("agentBriefs.ghost");
+  });
 });

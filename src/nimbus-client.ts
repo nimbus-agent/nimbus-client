@@ -1,10 +1,40 @@
-import type { NimbusItem } from "@nimbus-dev/sdk";
+import type {
+  AgentName,
+  BriefFor,
+  CatchupBrief,
+  ConflictBrief,
+  ExpertBrief,
+  GhostBrief,
+  HuddleBrief,
+  ImpactBrief,
+  JanitorBrief,
+  NimbusItem,
+  PreflightBrief,
+} from "@nimbus-dev/sdk";
 
+import {
+  AgentBriefError,
+  type AgentBriefEvent,
+  type AgentParamsFor,
+  AgentTimeoutError,
+  type CatchupParams,
+  type ConflictsParams,
+  DEFAULT_AGENT_TIMEOUT_MS,
+  type ExpertParams,
+  type GhostParams,
+  type HuddleParams,
+  type ImpactParams,
+  type JanitorParams,
+  type PreflightParams,
+  parseBriefError,
+  parseBriefReady,
+} from "./agents.js";
 import { createAskStream } from "./ask-stream.js";
 import { IPCClient } from "./ipc-transport.js";
 import type { AskStreamHandle, AskStreamOptions, HitlRequest } from "./stream-events.js";
 import {
   validateAgentInvoke,
+  validateAgentSession,
   validateAuditList,
   validateEgressHead,
   validateEgressList,
@@ -177,6 +207,10 @@ export interface NimbusClientLike {
   ): Promise<{ reply?: string } & Record<string, unknown>>;
   askStream(input: string, opts?: AskStreamOptions): AskStreamHandle;
   subscribeHitl(handler: (req: HitlRequest) => void): { dispose(): void };
+  subscribeAgentBrief<A extends AgentName>(
+    agent: A,
+    handler: (ev: AgentBriefEvent<A>) => void,
+  ): { dispose(): void };
   getSessionTranscript(params: { sessionId: string; limit?: number }): Promise<SessionTranscript>;
   cancelStream(streamId: string): Promise<{ ok: boolean }>;
   queryItems(params: {
@@ -193,6 +227,14 @@ export interface NimbusClientLike {
   egressList(params?: EgressListParams): Promise<EgressListResult>;
   egressVerify(): Promise<EgressVerifyResult>;
   egressProveWindow(params?: EgressProveWindowParams): Promise<EgressProveWindowResult>;
+  agentsExpert(p: ExpertParams, o?: { timeoutMs?: number }): Promise<ExpertBrief>;
+  agentsImpact(p: ImpactParams, o?: { timeoutMs?: number }): Promise<ImpactBrief>;
+  agentsCatchup(p?: CatchupParams, o?: { timeoutMs?: number }): Promise<CatchupBrief>;
+  agentsGhost(p: GhostParams, o?: { timeoutMs?: number }): Promise<GhostBrief>;
+  agentsConflicts(p: ConflictsParams, o?: { timeoutMs?: number }): Promise<ConflictBrief>;
+  agentsHuddle(p?: HuddleParams, o?: { timeoutMs?: number }): Promise<HuddleBrief>;
+  agentsJanitor(p: JanitorParams, o?: { timeoutMs?: number }): Promise<JanitorBrief>;
+  agentsPreflight(p: PreflightParams, o?: { timeoutMs?: number }): Promise<PreflightBrief>;
   close(): Promise<void>;
 }
 
@@ -253,6 +295,116 @@ export class NimbusClient implements NimbusClientLike {
         this.ipc.offNotification("agent.hitlBatch", onBatch);
       },
     };
+  }
+
+  /**
+   * Observe both completion notifications for one agent.
+   *
+   * Registers on `<agent>.briefReady` AND `<agent>.briefError`; `dispose()`
+   * removes both. Generic over the agent NAME so a ninth agent costs one
+   * `AGENT_NAMES` entry rather than a new method.
+   */
+  subscribeAgentBrief<A extends AgentName>(
+    agent: A,
+    handler: (ev: AgentBriefEvent<A>) => void,
+  ): { dispose(): void } {
+    const readyMethod = `${agent}.briefReady`;
+    const errorMethod = `${agent}.briefError`;
+    const onReady = (params: unknown): void => {
+      const ev = parseBriefReady(agent, params);
+      if (ev !== null) handler(ev);
+    };
+    const onError = (params: unknown): void => {
+      const ev = parseBriefError<A>(params);
+      if (ev !== null) handler(ev);
+    };
+    this.ipc.onNotification(readyMethod, onReady);
+    this.ipc.onNotification(errorMethod, onError);
+    return {
+      dispose: () => {
+        this.ipc.offNotification(readyMethod, onReady);
+        this.ipc.offNotification(errorMethod, onError);
+      },
+    };
+  }
+
+  /**
+   * Fire an agent and await its brief.
+   *
+   * Ordering matters: the gateway starts the work before the RPC response is
+   * parsed (`emit-brief.ts` fires its async IIFE immediately), so we subscribe
+   * FIRST and buffer anything that arrives before `sessionId` is known, then
+   * drain the buffer. Without the buffer a fast agent's notification is
+   * dropped; without the sessionId filter two concurrent runs swap results.
+   */
+  private async runAgent<A extends AgentName>(
+    agent: A,
+    params: AgentParamsFor<A>,
+    opts?: { timeoutMs?: number },
+  ): Promise<BriefFor<A>> {
+    const timeoutMs = opts?.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
+    const buffered: AgentBriefEvent<A>[] = [];
+    let sessionId: string | null = null;
+    let deliver: ((ev: AgentBriefEvent<A>) => void) | null = null;
+
+    const sub = this.subscribeAgentBrief(agent, (ev) => {
+      if (sessionId === null) {
+        buffered.push(ev);
+        return;
+      }
+      if (ev.sessionId === sessionId) deliver?.(ev);
+    });
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const method = `agents.${agent}`;
+      const raw = await this.ipc.call<unknown>(method, params);
+      const sid = validateAgentSession(method, raw).sessionId;
+      sessionId = sid;
+
+      const ev = await new Promise<AgentBriefEvent<A>>((resolve, reject) => {
+        deliver = resolve;
+        const early = buffered.find((b) => b.sessionId === sid);
+        if (early !== undefined) {
+          resolve(early);
+          return;
+        }
+        timer = setTimeout(() => {
+          reject(new AgentTimeoutError(agent, sid, timeoutMs));
+        }, timeoutMs);
+      });
+
+      if (!ev.ok) throw new AgentBriefError(agent, ev.sessionId, ev.error);
+      return ev.findings;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      sub.dispose();
+    }
+  }
+
+  agentsExpert(p: ExpertParams, o?: { timeoutMs?: number }): Promise<ExpertBrief> {
+    return this.runAgent("expert", p, o);
+  }
+  agentsImpact(p: ImpactParams, o?: { timeoutMs?: number }): Promise<ImpactBrief> {
+    return this.runAgent("impact", p, o);
+  }
+  agentsCatchup(p?: CatchupParams, o?: { timeoutMs?: number }): Promise<CatchupBrief> {
+    return this.runAgent("catchup", p ?? {}, o);
+  }
+  agentsGhost(p: GhostParams, o?: { timeoutMs?: number }): Promise<GhostBrief> {
+    return this.runAgent("ghost", p, o);
+  }
+  agentsConflicts(p: ConflictsParams, o?: { timeoutMs?: number }): Promise<ConflictBrief> {
+    return this.runAgent("conflicts", p, o);
+  }
+  agentsHuddle(p?: HuddleParams, o?: { timeoutMs?: number }): Promise<HuddleBrief> {
+    return this.runAgent("huddle", p ?? {}, o);
+  }
+  agentsJanitor(p: JanitorParams, o?: { timeoutMs?: number }): Promise<JanitorBrief> {
+    return this.runAgent("janitor", p, o);
+  }
+  agentsPreflight(p: PreflightParams, o?: { timeoutMs?: number }): Promise<PreflightBrief> {
+    return this.runAgent("preflight", p, o);
   }
 
   async getSessionTranscript(params: {

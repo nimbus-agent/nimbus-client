@@ -1,0 +1,246 @@
+{
+  "expert": {
+    "sessionId": "expert_1784747092686_0502e466",
+    "brief": "# Expert: src/payments/charge.ts\n## Top 0\n_no people matched_\n\n## Gaps\n\n- No items in the local index yet. (Run `nimbus connector sync <service>` for at least one connector.)\n- No sync_state row for service `github`. (Run `nimbus connector auth github` to register and sync.)\n- `reviewed` edges are defined in the schema but not yet emitted by the graph populator. (Tracked as a graph-populator follow-up; not gated on a specific Phase 5 wave.)\n- No `incident` graph entities — 0 incidents considered. (Tracked as a graph-populator follow-up on existing PagerDuty / Sentry connectors.)\n- No sync_state row for service `slack`. (Run `nimbus connector auth slack` to register and sync.)\n\n_generated in 0.0 s_",
+    "findings": {
+      "kind": "expert",
+      "agentVersion": 1,
+      "generatedAt": 1784747092687,
+      "latencyMs": 1,
+      "gaps": [
+        {
+          "category": "empty_index",
+          "detail": "No items in the local index yet.",
+          "remediation": "Run `nimbus connector sync <service>` for at least one connector."
+        },
+        {
+          "category": "missing_connector",
+          "detail": "No sync_state row for service `github`.",
+          "remediation": "Run `nimbus connector auth github` to register and sync."
+        },
+        {
+          "category": "missing_relation_emit",
+          "detail": "`reviewed` edges are defined in the schema but not yet emitted by the graph populator.",
+          "remediation": "Tracked as a graph-populator follow-up; not gated on a specific Phase 5 wave."
+        },
+        {
+          "category": "missing_entity_type",
+          "detail": "No `incident` graph entities — 0 incidents considered.",
+          "remediation": "Tracked as a graph-populator follow-up on existing PagerDuty / Sentry connectors."
+        },
+        {
+          "category": "missing_connector",
+          "detail": "No sync_state row for service `slack`.",
+          "remediation": "Run `nimbus connector auth slack` to register and sync."
+        }
+      ],
+      "query": {
+        "topicOrFile": "src/payments/charge.ts"
+      },
+      "ranked": []
+    }
+  },
+  "impact": {
+    "sessionId": "impact_1784747092697_d21527a4",
+    "brief": "# Impact: src/payments/charge.ts\n_no downstream impact resolved_\n\n## Gaps\n\n- No items in the local index yet. (Run `nimbus connector sync <service>` for at least one connector.)\n- Cannot traverse `depends_on`: start entity did not resolve.\n- Cannot traverse `triggers`: start entity did not resolve.\n- No sync_state row for service `pagerduty`. (Run `nimbus connector auth pagerduty` to register and sync.)\n- No `dashboard` graph entities — 0 dashboards considered. (Phase 5 Wave D will populate `dashboard` via Metabase / Superset connectors.)\n- Cannot resolve downstream repos: start entity did not resolve.\n\n_generated in 0.0 s_",
+    "findings": {
+      "kind": "impact",
+      "agentVersion": 1,
+      "generatedAt": 1784747092698,
+      "latencyMs": 1,
+      "gaps": [
+        {
+          "category": "empty_index",
+          "detail": "No items in the local index yet.",
+          "remediation": "Run `nimbus connector sync <service>` for at least one connector."
+        },
+        {
+          "category": "missing_relation_emit",
+          "detail": "Cannot traverse `depends_on`: start entity did not resolve."
+        },
+        {
+          "category": "missing_relation_emit",
+          "detail": "Cannot traverse `triggers`: start entity did not resolve."
+        },
+        {
+          "category": "missing_connector",
+          "detail": "No sync_state row for service `pagerduty`.",
+          "remediation": "Run `nimbus connector auth pagerduty` to register and sync."
+        },
+        {
+          "category": "missing_entity_type",
+          "detail": "No `dashboard` graph entities — 0 dashboards considered.",
+          "remediation": "Phase 5 Wave D will populate `dashboard` via Metabase / Superset connectors."
+        },
+        {
+          "category": "missing_relation_emit",
+          "detail": "Cannot resolve downstream repos: start entity did not resolve."
+        }
+      ],
+      "query": {
+        "fileOrPrUrl": "src/payments/charge.ts"
+      },
+      "startEntityId": null,
+      "affected": []
+    }
+  },
+  "catchup": {
+    "sessionId": "catchup_1784747092706_b287aee8",
+    "brief": "# Catchup\n_no activity in the requested window_\n\n## Gaps\n\n- No items in the local index yet. (Run `nimbus connector sync <service>` for at least one connector.)\n- Could not resolve the current user — no override / git email / OS username matched a known person. (Set `[user] me_person_id` in your active profile's nimbus.toml, or run `nimbus people search <you>` to find your person id.)\n\n_generated in 0.0 s_",
+    "findings": {
+      "kind": "catchup",
+      "agentVersion": 1,
+      "generatedAt": 1784747092725,
+      "latencyMs": 19,
+      "gaps": [
+        {
+          "category": "empty_index",
+          "detail": "No items in the local index yet.",
+          "remediation": "Run `nimbus connector sync <service>` for at least one connector."
+        },
+        {
+          "category": "missing_user_identity",
+          "detail": "Could not resolve the current user — no override / git email / OS username matched a known person.",
+          "remediation": "Set `[user] me_person_id` in your active profile's nimbus.toml, or run `nimbus people search <you>` to find your person id."
+        }
+      ],
+      "query": {
+        "sinceMs": 259200000
+      },
+      "selfPersonId": null,
+      "involvement": {
+        "ownedServices": [],
+        "activeRepos": [],
+        "incidentServices": [],
+        "collaboratorPersonIds": []
+      },
+      "sections": []
+    }
+  },
+  "ghost": {
+    "sessionId": "ghost_1784747092734_9cb9e691",
+    "brief": "# Ghost: src/payments/charge.ts\n_no teammate context found_\n\n## Gaps\n\n- no known namespaces — pass --namespace <name>\n- no paired peers — run `nimbus team pair`\n\n_generated in 0.0 s_",
+    "findings": {
+      "kind": "ghost",
+      "agentVersion": 1,
+      "generatedAt": 1784747092735,
+      "latencyMs": 1,
+      "gaps": [
+        {
+          "category": "missing_connector",
+          "detail": "no known namespaces — pass --namespace <name>"
+        },
+        {
+          "category": "missing_connector",
+          "detail": "no paired peers — run `nimbus team pair`"
+        }
+      ],
+      "query": {
+        "file": "src/payments/charge.ts"
+      },
+      "startEntityId": null,
+      "findings": []
+    }
+  },
+  "conflicts": {
+    "sessionId": "conflicts_1784747092742_2454882d",
+    "brief": "# Conflicts: src/payments/charge.ts\n_no work-in-progress collisions found_\n\n## Gaps\n\n- no known namespaces — pass --namespace <name>\n- no paired peers — run `nimbus team pair`\n\n_generated in 0.0 s_",
+    "findings": {
+      "kind": "conflict",
+      "agentVersion": 1,
+      "generatedAt": 1784747092743,
+      "latencyMs": 0,
+      "gaps": [
+        {
+          "category": "missing_connector",
+          "detail": "no known namespaces — pass --namespace <name>"
+        },
+        {
+          "category": "missing_connector",
+          "detail": "no paired peers — run `nimbus team pair`"
+        }
+      ],
+      "query": {
+        "file": "src/payments/charge.ts"
+      },
+      "startEntityId": null,
+      "collisions": []
+    }
+  },
+  "huddle": {
+    "sessionId": "huddle_1784747092750_23189097",
+    "brief": "# Team Huddle\n_no teammate activity in the window_\n\n## Gaps\n\n- no known namespaces — pass --namespace <name>\n- no paired peers — run `nimbus team pair`\n\n_generated in 0.0 s_",
+    "findings": {
+      "kind": "huddle",
+      "agentVersion": 1,
+      "generatedAt": 1784747092750,
+      "latencyMs": 0,
+      "gaps": [
+        {
+          "category": "missing_connector",
+          "detail": "no known namespaces — pass --namespace <name>"
+        },
+        {
+          "category": "missing_connector",
+          "detail": "no paired peers — run `nimbus team pair`"
+        }
+      ],
+      "query": {
+        "sinceMs": 259200000
+      },
+      "contributions": []
+    }
+  },
+  "janitor": {
+    "sessionId": "janitor_1784747092758_cf4f0e22",
+    "brief": "# Janitor: repo:acme/payments#branch/wip\n_coverage incomplete — proposal withheld (pass --allow-gaps to override)_\n\n## Gaps\n\n- resourceRef too short or malformed (min 4 chars)\n- no paired peers — run `nimbus team pair`\n\n_generated in 0.0 s_",
+    "findings": {
+      "kind": "janitor",
+      "agentVersion": 1,
+      "generatedAt": 1784747092758,
+      "latencyMs": 0,
+      "gaps": [
+        {
+          "category": "missing_connector",
+          "detail": "resourceRef too short or malformed (min 4 chars)"
+        },
+        {
+          "category": "missing_connector",
+          "detail": "no paired peers — run `nimbus team pair`"
+        }
+      ],
+      "query": {
+        "resourceRef": "repo:acme/payments#branch/wip",
+        "idleDays": 14
+      },
+      "idle": false,
+      "proposalSuppressed": true,
+      "cleanupAction": null,
+      "peersClear": 0,
+      "peersTouched": []
+    }
+  },
+  "preflight": {
+    "sessionId": "preflight_1784747092766_6438d845",
+    "brief": "# Preflight: HEAD\n_no downstream owners reachable_\n\n## Gaps\n\n- no paired peers — run `nimbus team pair`\n\n_generated in 0.0 s_",
+    "findings": {
+      "kind": "preflight",
+      "agentVersion": 1,
+      "generatedAt": 1784747092766,
+      "latencyMs": 0,
+      "gaps": [
+        {
+          "category": "missing_connector",
+          "detail": "no paired peers — run `nimbus team pair`"
+        }
+      ],
+      "query": {
+        "ref": "HEAD",
+        "namespace": "payments"
+      },
+      "downstreams": [],
+      "anyFailed": false,
+      "anyIncomplete": true
+    }
+  }
+}
