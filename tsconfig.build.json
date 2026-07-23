@@ -9,5 +9,9 @@
     "allowImportingTsExtensions": false,
     "rootDir": "./src"
   },
+  // Pinned, NOT inherited: the base include now covers test/ and scripts/ so editors
+  // resolve those files to a real project. Emit must stay src-only — note test/_fake-ipc.ts
+  // is not a *.test.ts, so the exclude below would not have caught it.
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }
