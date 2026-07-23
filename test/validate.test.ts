@@ -8,6 +8,14 @@ import {
   validateAuditSummary,
   validateAuditToolCalls,
   validateAuditVerify,
+  validateConnectorAddMcp,
+  validateConnectorAuth,
+  validateConnectorHealthHistory,
+  validateConnectorReindex,
+  validateConnectorRemove,
+  validateConnectorSetConfig,
+  validateConnectorStatusResult,
+  validateConnectorSyncStatusList,
   validateDeployPreflight,
   validateDiagSnapshot,
   validateDiagVersion,
@@ -27,6 +35,10 @@ import {
   validateSessionList,
   validateSessionRecall,
   validateSessionTranscript,
+  validateWorkflowList,
+  validateWorkflowListRuns,
+  validateWorkflowRun,
+  validateWorkflowSave,
 } from "../src/validate.ts";
 
 const INDEX_METRICS = {
@@ -779,5 +791,275 @@ describe("validateAgentSession", () => {
 
   test("rejects a non-object", () => {
     expect(() => validateAgentSession("agents.expert", "nope")).toThrow(IpcResponseError);
+  });
+});
+
+const SYNC_STATUS_WIRE = {
+  serviceId: "github",
+  status: "ok",
+  lastSyncAt: 1,
+  nextSyncAt: 2,
+  intervalMs: 300_000,
+  itemCount: 5,
+  lastError: null,
+  consecutiveFailures: 0,
+  depth: "metadata_only",
+  enabled: true,
+};
+
+describe("validateConnectorSyncStatusList / validateConnectorStatusResult", () => {
+  test("accepts a well-formed list and optional health fields", () => {
+    const out = validateConnectorSyncStatusList("m", [
+      { ...SYNC_STATUS_WIRE, healthState: "healthy", healthRetryAfterMs: null },
+    ]);
+    expect(out[0]?.healthState).toBe("healthy");
+    expect(out[0]?.healthRetryAfterMs).toBeNull();
+  });
+
+  test("rejects an unrecognised status value", () => {
+    expect(() =>
+      validateConnectorSyncStatusList("m", [{ ...SYNC_STATUS_WIRE, status: "bogus" }]),
+    ).toThrow(/"status" must be a recognised connector status/);
+  });
+
+  test("rejects an unrecognised depth value", () => {
+    expect(() =>
+      validateConnectorSyncStatusList("m", [{ ...SYNC_STATUS_WIRE, depth: "bogus" }]),
+    ).toThrow(/"depth" must be/);
+  });
+
+  test("connectorStatus result omits telemetry when absent and includes it when present", () => {
+    const withoutTelemetry = validateConnectorStatusResult("m", SYNC_STATUS_WIRE);
+    expect(withoutTelemetry.telemetry).toBeUndefined();
+
+    const withTelemetry = validateConnectorStatusResult("m", {
+      ...SYNC_STATUS_WIRE,
+      telemetry: [
+        {
+          startedAt: 1,
+          durationMs: 2,
+          itemsUpserted: 3,
+          itemsDeleted: 0,
+          bytesTransferred: null,
+          hadMore: false,
+          errorMsg: null,
+        },
+      ],
+    });
+    expect(withTelemetry.telemetry).toHaveLength(1);
+  });
+});
+
+describe("validateConnectorHealthHistory", () => {
+  test("accepts a well-formed row with a null fromState/reason", () => {
+    const out = validateConnectorHealthHistory("m", [
+      {
+        id: 1,
+        connectorId: "github",
+        fromState: null,
+        toState: "healthy",
+        reason: null,
+        occurredAtMs: 5,
+      },
+    ]);
+    expect(out[0]?.fromState).toBeNull();
+  });
+
+  test("rejects a row missing toState", () => {
+    expect(() =>
+      validateConnectorHealthHistory("m", [{ id: 1, connectorId: "github", occurredAtMs: 5 }]),
+    ).toThrow(IpcResponseError);
+  });
+});
+
+describe("validateConnectorSetConfig", () => {
+  test("accepts every field null (nothing was requested)", () => {
+    expect(
+      validateConnectorSetConfig("m", {
+        service: "github",
+        intervalMs: null,
+        depth: null,
+        enabled: null,
+      }),
+    ).toEqual({ service: "github", intervalMs: null, depth: null, enabled: null });
+  });
+
+  test("rejects a non-boolean, non-null enabled", () => {
+    expect(() =>
+      validateConnectorSetConfig("m", {
+        service: "github",
+        intervalMs: null,
+        depth: null,
+        enabled: "yes",
+      }),
+    ).toThrow(/"enabled" must be a boolean or null/);
+  });
+});
+
+describe("validateConnectorReindex", () => {
+  test("accepts a shallow and a deepen result", () => {
+    expect(
+      validateConnectorReindex("m", { itemsAffected: 2, depth: "metadata_only", mode: "shallow" }),
+    ).toEqual({ itemsAffected: 2, depth: "metadata_only", mode: "shallow" });
+    expect(
+      validateConnectorReindex("m", { itemsAffected: 0, depth: "full", mode: "deepen" }),
+    ).toEqual({ itemsAffected: 0, depth: "full", mode: "deepen" });
+  });
+
+  test("rejects an unrecognised mode", () => {
+    expect(() =>
+      validateConnectorReindex("m", { itemsAffected: 0, depth: "full", mode: "bogus" }),
+    ).toThrow(/"mode" must be "shallow" or "deepen"/);
+  });
+});
+
+describe("validateConnectorAuth", () => {
+  test("accepts the uniform success shape", () => {
+    expect(
+      validateConnectorAuth("m", { ok: true, serviceId: "github", scopesGranted: ["repo"] }),
+    ).toEqual({ ok: true, serviceId: "github", scopesGranted: ["repo"] });
+  });
+
+  test("rejects ok: false — connector.auth never returns a resolved failure shape", () => {
+    expect(() =>
+      validateConnectorAuth("m", { ok: false, serviceId: "github", scopesGranted: [] }),
+    ).toThrow(/"ok" must be true/);
+  });
+
+  test("rejects a non-string entry in scopesGranted", () => {
+    expect(() =>
+      validateConnectorAuth("m", { ok: true, serviceId: "github", scopesGranted: [1] }),
+    ).toThrow(/"scopesGranted" must contain only strings/);
+  });
+});
+
+describe("validateConnectorAddMcp / validateConnectorRemove — HITL dual-shape", () => {
+  test("addMcp accepts the approved shape", () => {
+    expect(validateConnectorAddMcp("m", { ok: true, serviceId: "mcp_x" })).toEqual({
+      ok: true,
+      serviceId: "mcp_x",
+    });
+  });
+
+  test("addMcp accepts the denied shape without requiring ok/serviceId", () => {
+    expect(validateConnectorAddMcp("m", { status: "rejected", reason: "no" })).toEqual({
+      status: "rejected",
+      reason: "no",
+    });
+  });
+
+  test("addMcp rejects ok: false (not a recognised denial, not a valid success)", () => {
+    expect(() => validateConnectorAddMcp("m", { ok: false, serviceId: "mcp_x" })).toThrow(
+      /"ok" must be true/,
+    );
+  });
+
+  test("remove accepts the approved shape with vaultKeysRemoved", () => {
+    expect(
+      validateConnectorRemove("m", { ok: true, itemsDeleted: 2, vaultKeysRemoved: ["a.b"] }),
+    ).toEqual({ ok: true, itemsDeleted: 2, vaultKeysRemoved: ["a.b"] });
+  });
+
+  test("remove accepts the denied shape", () => {
+    expect(validateConnectorRemove("m", { status: "rejected", reason: "no" })).toEqual({
+      status: "rejected",
+      reason: "no",
+    });
+  });
+
+  test("remove rejects a non-string entry in vaultKeysRemoved", () => {
+    expect(() =>
+      validateConnectorRemove("m", { ok: true, itemsDeleted: 0, vaultKeysRemoved: [1] }),
+    ).toThrow(/"vaultKeysRemoved" must contain only strings/);
+  });
+});
+
+describe("validateWorkflowList / validateWorkflowSave / validateWorkflowListRuns / validateWorkflowRun", () => {
+  test("workflowList accepts the raw snake_case row shape", () => {
+    const out = validateWorkflowList("m", {
+      workflows: [
+        {
+          id: "wf-1",
+          name: "n",
+          description: null,
+          steps_json: "[]",
+          created_at: 1,
+          updated_at: 2,
+        },
+      ],
+    });
+    expect(out.workflows[0]?.steps_json).toBe("[]");
+  });
+
+  test("workflowList rejects a row missing steps_json", () => {
+    expect(() =>
+      validateWorkflowList("m", {
+        workflows: [{ id: "wf-1", name: "n", description: null, created_at: 1, updated_at: 2 }],
+      }),
+    ).toThrow(IpcResponseError);
+  });
+
+  test("workflowSave accepts { id }", () => {
+    expect(validateWorkflowSave("m", { id: "wf-1" })).toEqual({ id: "wf-1" });
+  });
+
+  test("workflowListRuns accepts a still-running row (nulls) and a finished row", () => {
+    const out = validateWorkflowListRuns("m", {
+      runs: [
+        {
+          id: "r1",
+          startedAt: 1,
+          finishedAt: null,
+          durationMs: null,
+          status: "running",
+          errorMsg: null,
+          dryRun: false,
+          paramsOverrideJson: null,
+          triggeredBy: "cli",
+        },
+      ],
+    });
+    expect(out.runs[0]?.finishedAt).toBeNull();
+  });
+
+  test("workflowListRuns rejects a row with a non-boolean dryRun", () => {
+    expect(() =>
+      validateWorkflowListRuns("m", {
+        runs: [
+          {
+            id: "r1",
+            startedAt: 1,
+            finishedAt: null,
+            durationMs: null,
+            status: "running",
+            errorMsg: null,
+            dryRun: "no",
+            paramsOverrideJson: null,
+            triggeredBy: "cli",
+          },
+        ],
+      }),
+    ).toThrow(IpcResponseError);
+  });
+
+  test("workflowRun accepts step results with/without label/output/error", () => {
+    const out = validateWorkflowRun("m", {
+      runId: "run-1",
+      dryRun: false,
+      stepResults: [
+        { label: "s1", status: "ok", output: "done" },
+        { status: "error", error: "boom" },
+      ],
+    });
+    expect(out.stepResults).toEqual([
+      { label: "s1", status: "ok", output: "done" },
+      { status: "error", error: "boom" },
+    ]);
+  });
+
+  test("workflowRun rejects a stepResults entry missing status", () => {
+    expect(() =>
+      validateWorkflowRun("m", { runId: "run-1", dryRun: false, stepResults: [{}] }),
+    ).toThrow(IpcResponseError);
   });
 });

@@ -28,6 +28,24 @@ import type {
   AuditToolCallsResult,
   AuditVerifyParams,
   AuditVerifyResult,
+  ConnectorAddMcpParams,
+  ConnectorAddMcpResult,
+  ConnectorAuthParams,
+  ConnectorAuthResult,
+  ConnectorHealthHistoryEntry,
+  ConnectorHealthHistoryParams,
+  ConnectorReindexParams,
+  ConnectorReindexResult,
+  ConnectorRemoveParams,
+  ConnectorRemoveResult,
+  ConnectorServiceParams,
+  ConnectorSetConfigParams,
+  ConnectorSetConfigResult,
+  ConnectorSetIntervalParams,
+  ConnectorStatusParams,
+  ConnectorStatusResult,
+  ConnectorSyncParams,
+  ConnectorSyncStatus,
   ConsentRespondParams,
   DeployPreflightParams,
   DeployPreflightResult,
@@ -56,6 +74,13 @@ import type {
   SessionRecallParams,
   SessionRecallResult,
   SessionTranscript,
+  WorkflowDeleteParams,
+  WorkflowListResult,
+  WorkflowListRunsParams,
+  WorkflowListRunsResult,
+  WorkflowRunParams,
+  WorkflowRunResult,
+  WorkflowSaveParams,
 } from "./nimbus-client.js";
 import type {
   AskStreamHandle,
@@ -86,6 +111,17 @@ export type MockClientFixtures = {
   sessionList?: SessionListResult;
   metricsDora?: DoraMetricsResult;
   deployPreflight?: DeployPreflightResult;
+  connectorSyncStatuses?: ConnectorSyncStatus[];
+  connectorStatus?: ConnectorStatusResult;
+  connectorHealthHistory?: ConnectorHealthHistoryEntry[];
+  connectorSetConfig?: ConnectorSetConfigResult;
+  connectorAuth?: ConnectorAuthResult;
+  connectorAddMcp?: ConnectorAddMcpResult;
+  connectorRemove?: ConnectorRemoveResult;
+  connectorReindex?: ConnectorReindexResult;
+  workflowList?: WorkflowListResult;
+  workflowListRuns?: WorkflowListRunsResult;
+  workflowRun?: WorkflowRunResult;
   agentBriefs?: Partial<{
     expert: ExpertBrief;
     impact: ImpactBrief;
@@ -387,6 +423,112 @@ export class MockClient implements NimbusClientLike {
           failing_ci_runs: { count: 0, findings: [], gap: "no_repos" },
           merge_conflicts: { count: 0, findings: [], gap: "no_repos" },
         },
+      }
+    );
+  }
+
+  async connectorListStatus(_params?: { serviceId?: string }): Promise<ConnectorSyncStatus[]> {
+    return this.fixtures.connectorSyncStatuses ?? [];
+  }
+
+  private defaultConnectorStatus(serviceId: string): ConnectorStatusResult {
+    return {
+      serviceId,
+      status: "ok",
+      lastSyncAt: null,
+      nextSyncAt: null,
+      intervalMs: 0,
+      itemCount: 0,
+      lastError: null,
+      consecutiveFailures: 0,
+      depth: "metadata_only",
+      enabled: true,
+    };
+  }
+
+  async connectorStatus(params: ConnectorStatusParams): Promise<ConnectorStatusResult> {
+    return this.fixtures.connectorStatus ?? this.defaultConnectorStatus(params.serviceId);
+  }
+
+  async connectorHealthHistory(
+    _params: ConnectorHealthHistoryParams,
+  ): Promise<ConnectorHealthHistoryEntry[]> {
+    return this.fixtures.connectorHealthHistory ?? [];
+  }
+
+  async connectorPause(_params: ConnectorServiceParams): Promise<{ ok: boolean }> {
+    return { ok: true };
+  }
+
+  async connectorResume(_params: ConnectorServiceParams): Promise<{ ok: boolean }> {
+    return { ok: true };
+  }
+
+  async connectorSetInterval(_params: ConnectorSetIntervalParams): Promise<{ ok: boolean }> {
+    return { ok: true };
+  }
+
+  async connectorSetConfig(params: ConnectorSetConfigParams): Promise<ConnectorSetConfigResult> {
+    return (
+      this.fixtures.connectorSetConfig ?? {
+        service: params.serviceId,
+        intervalMs: params.intervalMs ?? null,
+        depth: params.depth ?? null,
+        enabled: params.enabled ?? null,
+      }
+    );
+  }
+
+  async connectorSync(_params: ConnectorSyncParams): Promise<{ ok: boolean }> {
+    return { ok: true };
+  }
+
+  async connectorAuth(params: ConnectorAuthParams): Promise<ConnectorAuthResult> {
+    return (
+      this.fixtures.connectorAuth ?? { ok: true, serviceId: params.serviceId, scopesGranted: [] }
+    );
+  }
+
+  async connectorAddMcp(params: ConnectorAddMcpParams): Promise<ConnectorAddMcpResult> {
+    return this.fixtures.connectorAddMcp ?? { ok: true, serviceId: params.serviceId };
+  }
+
+  async connectorRemove(_params: ConnectorRemoveParams): Promise<ConnectorRemoveResult> {
+    return this.fixtures.connectorRemove ?? { ok: true, itemsDeleted: 0, vaultKeysRemoved: [] };
+  }
+
+  async connectorReindex(params: ConnectorReindexParams): Promise<ConnectorReindexResult> {
+    return (
+      this.fixtures.connectorReindex ?? {
+        itemsAffected: 0,
+        depth: params.depth ?? "metadata_only",
+        mode: "shallow",
+      }
+    );
+  }
+
+  async workflowList(): Promise<WorkflowListResult> {
+    return this.fixtures.workflowList ?? { workflows: [] };
+  }
+
+  async workflowSave(_params: WorkflowSaveParams): Promise<{ id: string }> {
+    return { id: "mock-workflow" };
+  }
+
+  async workflowDelete(_params: WorkflowDeleteParams): Promise<{ ok: boolean }> {
+    return { ok: true };
+  }
+
+  async workflowListRuns(_params: WorkflowListRunsParams): Promise<WorkflowListRunsResult> {
+    return this.fixtures.workflowListRuns ?? { runs: [] };
+  }
+
+  async workflowRun(params: WorkflowRunParams): Promise<WorkflowRunResult> {
+    return (
+      this.fixtures.workflowRun ?? {
+        runId: "mock-run",
+        dryRun: params.dryRun ?? false,
+        stepResults: [],
       }
     );
   }

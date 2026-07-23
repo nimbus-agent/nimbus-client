@@ -39,6 +39,14 @@ import {
   validateAuditSummary,
   validateAuditToolCalls,
   validateAuditVerify,
+  validateConnectorAddMcp,
+  validateConnectorAuth,
+  validateConnectorHealthHistory,
+  validateConnectorReindex,
+  validateConnectorRemove,
+  validateConnectorSetConfig,
+  validateConnectorStatusResult,
+  validateConnectorSyncStatusList,
   validateDeployPreflight,
   validateDiagSnapshot,
   validateDiagVersion,
@@ -58,6 +66,10 @@ import {
   validateSessionList,
   validateSessionRecall,
   validateSessionTranscript,
+  validateWorkflowList,
+  validateWorkflowListRuns,
+  validateWorkflowRun,
+  validateWorkflowSave,
 } from "./validate.js";
 
 export type NimbusClientOptions = {
@@ -669,6 +681,280 @@ export type DeployPreflightResult = {
 };
 
 /**
+ * A connector's sync status. Mirrors the Gateway's `SyncStatus` (`sync/types.ts`).
+ */
+export type ConnectorSyncStatus = {
+  serviceId: string;
+  status: "ok" | "syncing" | "paused" | "backoff" | "error";
+  lastSyncAt: number | null;
+  nextSyncAt: number | null;
+  intervalMs: number;
+  itemCount: number;
+  lastError: string | null;
+  consecutiveFailures: number;
+  healthState?: string;
+  healthRetryAfterMs?: number | null;
+  depth: "metadata_only" | "summary" | "full";
+  enabled: boolean;
+};
+
+/**
+ * One recent sync attempt's telemetry, embedded in {@link ConnectorStatusResult}
+ * when `includeStats` is requested. Mirrors the Gateway's `SyncTelemetryRow`
+ * (`sync/scheduler-store.ts`).
+ */
+export type ConnectorSyncTelemetry = {
+  startedAt: number;
+  durationMs: number;
+  itemsUpserted: number;
+  itemsDeleted: number;
+  bytesTransferred: number | null;
+  hadMore: boolean;
+  errorMsg: string | null;
+};
+
+/** Parameters for {@link NimbusClient.connectorStatus}. */
+export type ConnectorStatusParams = {
+  serviceId: string;
+  /** Include the last 15 sync-telemetry rows on the result. */
+  includeStats?: boolean;
+};
+
+/** Result of {@link NimbusClient.connectorStatus}. `telemetry` is present only when `includeStats: true` was passed. */
+export type ConnectorStatusResult = ConnectorSyncStatus & { telemetry?: ConnectorSyncTelemetry[] };
+
+/**
+ * One connector-health state transition, as returned by
+ * {@link NimbusClient.connectorHealthHistory}. Mirrors the Gateway's health
+ * history row (`connectors/health.ts`).
+ */
+export type ConnectorHealthHistoryEntry = {
+  id: number;
+  connectorId: string;
+  fromState: string | null;
+  toState: string;
+  reason: string | null;
+  occurredAtMs: number;
+};
+
+/**
+ * Parameters for {@link NimbusClient.connectorHealthHistory}. `service` is
+ * REQUIRED (the Gateway rejects a missing/invalid one) and must be a
+ * built-in connector id — not a user MCP id.
+ */
+export type ConnectorHealthHistoryParams = {
+  service: string;
+  /** The Gateway clamps to 1..500; default 100. */
+  limit?: number;
+};
+
+/**
+ * Parameters shared by {@link NimbusClient.connectorPause},
+ * {@link NimbusClient.connectorResume}. `serviceId` must already be a
+ * registered connector (the Gateway rejects an unknown one).
+ */
+export type ConnectorServiceParams = { serviceId: string };
+
+/** Parameters for {@link NimbusClient.connectorSetInterval}. */
+export type ConnectorSetIntervalParams = { serviceId: string; intervalMs: number };
+
+/**
+ * Parameters for {@link NimbusClient.connectorSetConfig}. Every field besides
+ * `serviceId` is optional — only the fields you pass are changed.
+ */
+export type ConnectorSetConfigParams = {
+  serviceId: string;
+  /** The Gateway enforces a minimum (`MIN_SYNC_INTERVAL_MS`, 60s). */
+  intervalMs?: number;
+  depth?: "metadata_only" | "summary" | "full";
+  enabled?: boolean;
+};
+
+/**
+ * Result of {@link NimbusClient.connectorSetConfig}. A field reads `null`
+ * when it was not part of the request — not "the value was cleared".
+ */
+export type ConnectorSetConfigResult = {
+  service: string;
+  intervalMs: number | null;
+  depth: string | null;
+  enabled: boolean | null;
+};
+
+/** Parameters for {@link NimbusClient.connectorSync}. */
+export type ConnectorSyncParams = {
+  serviceId: string;
+  /** Clear the sync cursor first, forcing a full re-sync rather than incremental. */
+  full?: boolean;
+};
+
+/**
+ * Parameters for {@link NimbusClient.connectorAuth}. Field names beyond
+ * `serviceId` vary per provider: PAT-based connectors take
+ * `personalAccessToken`/`token` (aliases differ by provider), OAuth (PKCE)
+ * connectors take optional `scopes`/`port`, and several connectors have
+ * bespoke fields (`awsAccessKeyId`, `azureTenantId`, `gcpCredentialsJsonPath`,
+ * `atlassianEmail`/`apiBaseUrl` for jira/confluence, etc). See the Gateway's
+ * `ipc/connector-rpc-handlers/auth.ts` for the per-provider field list —
+ * there is no single shared shape to type here.
+ */
+export type ConnectorAuthParams = { serviceId: string } & Record<string, unknown>;
+
+/** Result of {@link NimbusClient.connectorAuth}: identical across every provider. */
+export type ConnectorAuthResult = { ok: true; serviceId: string; scopesGranted: string[] };
+
+/** Parameters for {@link NimbusClient.connectorAddMcp}. */
+export type ConnectorAddMcpParams = {
+  /** Must match `mcp_<lowercase_letters_numbers_underscores>` (1-62 chars after the prefix). */
+  serviceId: string;
+  /** The full shell command line; the Gateway parses it into `command` + `args`. */
+  commandLine: string;
+};
+
+/**
+ * The denied/timed-out/consent-disconnected shape a HITL-gated `connector.*`
+ * call RESOLVES with (never thrown). See {@link ConnectorAddMcpResult}.
+ */
+export type GatedRejection = { status: "rejected"; reason: string };
+
+/**
+ * Result of {@link NimbusClient.connectorAddMcp}. `connector.addMcp` is
+ * **HITL-gated (I2)**: the call blocks until the owner answers the
+ * `agent.hitlBatch` consent request the Gateway raises for it (see
+ * {@link NimbusClientLike.subscribeHitl} / {@link NimbusClient.consentRespond}).
+ * The RESOLVED shape differs by outcome — an approval resolves
+ * `{ ok: true, serviceId }`; a denial (or a consent-channel disconnect)
+ * resolves — does NOT reject — {@link GatedRejection}. Narrow on
+ * `"status" in result` before reading either branch.
+ */
+export type ConnectorAddMcpResult = { ok: true; serviceId: string } | GatedRejection;
+
+/** Parameters for {@link NimbusClient.connectorRemove}. */
+export type ConnectorRemoveParams = { serviceId: string };
+
+/**
+ * Result of {@link NimbusClient.connectorRemove}. `connector.remove` is
+ * **HITL-gated (I2)** — shares the blocking + dual-shape contract documented
+ * on {@link ConnectorAddMcpResult}.
+ */
+export type ConnectorRemoveResult =
+  | { ok: true; itemsDeleted: number; vaultKeysRemoved: string[] }
+  | GatedRejection;
+
+/** Parameters for {@link NimbusClient.connectorReindex}. */
+export type ConnectorReindexParams = {
+  service: string;
+  /**
+   * Default `"metadata_only"`. Only `"full"` is HITL-gated (I2) — and,
+   * unlike {@link NimbusClient.connectorAddMcp}/{@link NimbusClient.connectorRemove},
+   * a denial here REJECTS the promise (JSON-RPC error) rather than resolving
+   * to a {@link GatedRejection} shape.
+   */
+  depth?: "metadata_only" | "summary" | "full";
+};
+
+/** Result of {@link NimbusClient.connectorReindex}. Mirrors the Gateway's `ReindexResult` (`connectors/reindex.ts`). */
+export type ConnectorReindexResult = {
+  itemsAffected: number;
+  depth: "metadata_only" | "summary" | "full";
+  mode: "shallow" | "deepen";
+};
+
+/**
+ * A saved workflow, as returned by {@link NimbusClient.workflowList}. Mirrors
+ * the Gateway's raw `workflow` row verbatim (snake_case `steps_json` /
+ * `created_at` / `updated_at` — the Gateway does not camelCase this response).
+ */
+export type WorkflowRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  steps_json: string;
+  created_at: number;
+  updated_at: number;
+};
+
+/** Result of {@link NimbusClient.workflowList}. */
+export type WorkflowListResult = { workflows: WorkflowRow[] };
+
+/** Parameters for {@link NimbusClient.workflowSave}. Upserts by `name`. */
+export type WorkflowSaveParams = {
+  name: string;
+  description?: string | null;
+  /** Serialized step DAG. The Gateway does not parse it at save time. */
+  stepsJson: string;
+};
+
+/** Parameters for {@link NimbusClient.workflowDelete}. */
+export type WorkflowDeleteParams = { name: string };
+
+/**
+ * One historical workflow run, as returned by {@link NimbusClient.workflowListRuns}.
+ * Mirrors the Gateway's `WorkflowRunHistoryRow` (`automation/workflow-run-history.ts`).
+ */
+export type WorkflowRunHistoryRow = {
+  id: string;
+  startedAt: number;
+  finishedAt: number | null;
+  durationMs: number | null;
+  status: string;
+  errorMsg: string | null;
+  dryRun: boolean;
+  paramsOverrideJson: string | null;
+  triggeredBy: string;
+};
+
+/** Parameters for {@link NimbusClient.workflowListRuns}. */
+export type WorkflowListRunsParams = {
+  workflowName: string;
+  /** The Gateway clamps to 1..500. */
+  limit: number;
+};
+
+/** Result of {@link NimbusClient.workflowListRuns}. */
+export type WorkflowListRunsResult = { runs: WorkflowRunHistoryRow[] };
+
+/** One step's outcome within a {@link WorkflowRunResult}. */
+export type WorkflowStepResult = {
+  label?: string;
+  status: string;
+  output?: string;
+  error?: string;
+};
+
+/**
+ * Result of {@link NimbusClient.workflowRun}. Mirrors the resolved value of
+ * the Gateway's `WorkflowRunHandler` (`ipc/workflow-invoke.ts`).
+ */
+export type WorkflowRunResult = {
+  runId: string;
+  dryRun: boolean;
+  stepResults: WorkflowStepResult[];
+};
+
+/**
+ * Parameters for {@link NimbusClient.workflowRun}. An ORDINARY promise call —
+ * NOT a stream: `workflow.run` awaits the whole run server-side and resolves
+ * with the final result (unlike `askStream`, which returns a `streamId`
+ * immediately and streams tokens as notifications). Passing `stream: true`
+ * additionally makes the Gateway emit `agent.chunk` notifications
+ * (`{ text: string }` — the same plumbing `agent.invoke`'s `stream` option
+ * uses) while the run executes; this client does not currently expose a
+ * subscription helper for that channel, so a caller wanting live output must
+ * listen for it on the lower-level transport.
+ */
+export type WorkflowRunParams = {
+  name: string;
+  triggeredBy?: string;
+  dryRun?: boolean;
+  stream?: boolean;
+  sessionId?: string;
+  agent?: string;
+  /** Per-step param overrides, keyed by step label. */
+  paramsOverride?: Record<string, Record<string, unknown>>;
+};
+
+/**
  * The public surface shared by {@link NimbusClient} and
  * {@link MockClient}. A consumer can type against this so the real client and
  * the in-memory stub stay interchangeable (and in sync at compile time).
@@ -723,6 +1009,25 @@ export interface NimbusClientLike {
   agentsHuddle(p?: HuddleParams, o?: { timeoutMs?: number }): Promise<HuddleBrief>;
   agentsJanitor(p: JanitorParams, o?: { timeoutMs?: number }): Promise<JanitorBrief>;
   agentsPreflight(p: PreflightParams, o?: { timeoutMs?: number }): Promise<PreflightBrief>;
+  connectorListStatus(params?: { serviceId?: string }): Promise<ConnectorSyncStatus[]>;
+  connectorStatus(params: ConnectorStatusParams): Promise<ConnectorStatusResult>;
+  connectorHealthHistory(
+    params: ConnectorHealthHistoryParams,
+  ): Promise<ConnectorHealthHistoryEntry[]>;
+  connectorPause(params: ConnectorServiceParams): Promise<{ ok: boolean }>;
+  connectorResume(params: ConnectorServiceParams): Promise<{ ok: boolean }>;
+  connectorSetInterval(params: ConnectorSetIntervalParams): Promise<{ ok: boolean }>;
+  connectorSetConfig(params: ConnectorSetConfigParams): Promise<ConnectorSetConfigResult>;
+  connectorSync(params: ConnectorSyncParams): Promise<{ ok: boolean }>;
+  connectorAuth(params: ConnectorAuthParams): Promise<ConnectorAuthResult>;
+  connectorAddMcp(params: ConnectorAddMcpParams): Promise<ConnectorAddMcpResult>;
+  connectorRemove(params: ConnectorRemoveParams): Promise<ConnectorRemoveResult>;
+  connectorReindex(params: ConnectorReindexParams): Promise<ConnectorReindexResult>;
+  workflowList(): Promise<WorkflowListResult>;
+  workflowSave(params: WorkflowSaveParams): Promise<{ id: string }>;
+  workflowDelete(params: WorkflowDeleteParams): Promise<{ ok: boolean }>;
+  workflowListRuns(params: WorkflowListRunsParams): Promise<WorkflowListRunsResult>;
+  workflowRun(params: WorkflowRunParams): Promise<WorkflowRunResult>;
   close(): Promise<void>;
 }
 
@@ -1119,6 +1424,178 @@ export class NimbusClient implements NimbusClientLike {
    */
   async adminStatus(): Promise<GatewayStatus> {
     return validateGatewayStatus("admin.status", await this.ipc.call("admin.status"));
+  }
+
+  /** List every registered connector's sync status, or one when `serviceId` is passed (read-only). */
+  async connectorListStatus(params: { serviceId?: string } = {}): Promise<ConnectorSyncStatus[]> {
+    const raw = await this.ipc.call("connector.listStatus", { serviceId: params.serviceId });
+    return validateConnectorSyncStatusList("connector.listStatus", raw);
+  }
+
+  /** One connector's sync status, optionally with its last 15 sync-telemetry rows (read-only). */
+  async connectorStatus(params: ConnectorStatusParams): Promise<ConnectorStatusResult> {
+    const raw = await this.ipc.call("connector.status", {
+      serviceId: params.serviceId,
+      includeStats: params.includeStats,
+    });
+    return validateConnectorStatusResult("connector.status", raw);
+  }
+
+  /** A connector's health-state transition history (read-only). */
+  async connectorHealthHistory(
+    params: ConnectorHealthHistoryParams,
+  ): Promise<ConnectorHealthHistoryEntry[]> {
+    const raw = await this.ipc.call("connector.healthHistory", {
+      service: params.service,
+      limit: params.limit,
+    });
+    return validateConnectorHealthHistory("connector.healthHistory", raw);
+  }
+
+  /** Pause a registered connector's scheduled sync (mutates state; not HITL-gated). */
+  async connectorPause(params: ConnectorServiceParams): Promise<{ ok: boolean }> {
+    const raw = await this.ipc.call("connector.pause", { serviceId: params.serviceId });
+    return validateOk("connector.pause", raw);
+  }
+
+  /** Resume a paused connector's scheduled sync (mutates state; not HITL-gated). */
+  async connectorResume(params: ConnectorServiceParams): Promise<{ ok: boolean }> {
+    const raw = await this.ipc.call("connector.resume", { serviceId: params.serviceId });
+    return validateOk("connector.resume", raw);
+  }
+
+  /** Change a connector's sync interval (mutates state; not HITL-gated). */
+  async connectorSetInterval(params: ConnectorSetIntervalParams): Promise<{ ok: boolean }> {
+    const raw = await this.ipc.call("connector.setInterval", {
+      serviceId: params.serviceId,
+      intervalMs: params.intervalMs,
+    });
+    return validateOk("connector.setInterval", raw);
+  }
+
+  /**
+   * Update a connector's interval / depth / enabled state in one call
+   * (mutates state; not HITL-gated). Only the fields you pass are changed.
+   */
+  async connectorSetConfig(params: ConnectorSetConfigParams): Promise<ConnectorSetConfigResult> {
+    const raw = await this.ipc.call("connector.setConfig", {
+      serviceId: params.serviceId,
+      intervalMs: params.intervalMs,
+      depth: params.depth,
+      enabled: params.enabled,
+    });
+    return validateConnectorSetConfig("connector.setConfig", raw);
+  }
+
+  /** Force an immediate sync, optionally clearing the cursor for a full re-sync (mutates state; not HITL-gated). */
+  async connectorSync(params: ConnectorSyncParams): Promise<{ ok: boolean }> {
+    const raw = await this.ipc.call("connector.sync", {
+      serviceId: params.serviceId,
+      full: params.full,
+    });
+    return validateOk("connector.sync", raw);
+  }
+
+  /**
+   * Authenticate a connector (PAT, OAuth PKCE, or bespoke credentials
+   * depending on `serviceId` — see {@link ConnectorAuthParams}). Mutates
+   * state (writes Vault secrets); not HITL-gated.
+   */
+  async connectorAuth(params: ConnectorAuthParams): Promise<ConnectorAuthResult> {
+    const raw = await this.ipc.call("connector.auth", params);
+    return validateConnectorAuth("connector.auth", raw);
+  }
+
+  /**
+   * Register a user-defined MCP connector. **HITL-gated (I2)**: this call
+   * blocks until the owner answers the `agent.hitlBatch` consent request the
+   * Gateway raises for it — see {@link NimbusClient.subscribeHitl} and
+   * {@link NimbusClient.consentRespond}. The resolved shape differs by
+   * outcome; see {@link ConnectorAddMcpResult}.
+   */
+  async connectorAddMcp(params: ConnectorAddMcpParams): Promise<ConnectorAddMcpResult> {
+    const raw = await this.ipc.call("connector.addMcp", {
+      serviceId: params.serviceId,
+      commandLine: params.commandLine,
+    });
+    return validateConnectorAddMcp("connector.addMcp", raw);
+  }
+
+  /**
+   * Remove a connector: unregisters it from the scheduler, deletes its
+   * indexed items, and clears its Vault secrets. **HITL-gated (I2)** — shares
+   * the blocking + dual-shape contract documented on {@link connectorAddMcp};
+   * see {@link ConnectorRemoveResult}.
+   */
+  async connectorRemove(params: ConnectorRemoveParams): Promise<ConnectorRemoveResult> {
+    const raw = await this.ipc.call("connector.remove", {
+      serviceId: params.serviceId,
+      // The Gateway's consent-prompt payload for this action reads `service`
+      // (not `serviceId`) for display — send both so the HITL prompt names
+      // the right connector.
+      service: params.serviceId,
+    });
+    return validateConnectorRemove("connector.remove", raw);
+  }
+
+  /**
+   * Re-index a connector at a given depth. Only `depth: "full"` is HITL-gated
+   * (I2); unlike {@link connectorAddMcp}/{@link connectorRemove}, a denial
+   * here REJECTS the promise rather than resolving to a {@link GatedRejection}.
+   */
+  async connectorReindex(params: ConnectorReindexParams): Promise<ConnectorReindexResult> {
+    const raw = await this.ipc.call("connector.reindex", {
+      service: params.service,
+      depth: params.depth,
+    });
+    return validateConnectorReindex("connector.reindex", raw);
+  }
+
+  /** List every saved workflow (read-only). */
+  async workflowList(): Promise<WorkflowListResult> {
+    return validateWorkflowList("workflow.list", await this.ipc.call("workflow.list"));
+  }
+
+  /** Create or update (upsert by `name`) a saved workflow. */
+  async workflowSave(params: WorkflowSaveParams): Promise<{ id: string }> {
+    const raw = await this.ipc.call("workflow.save", {
+      name: params.name,
+      description: params.description,
+      stepsJson: params.stepsJson,
+    });
+    return validateWorkflowSave("workflow.save", raw);
+  }
+
+  /** Delete a saved workflow by name. */
+  async workflowDelete(params: WorkflowDeleteParams): Promise<{ ok: boolean }> {
+    const raw = await this.ipc.call("workflow.delete", { name: params.name });
+    return validateOk("workflow.delete", raw);
+  }
+
+  /** A workflow's historical run log, most recent first (read-only). */
+  async workflowListRuns(params: WorkflowListRunsParams): Promise<WorkflowListRunsResult> {
+    const raw = await this.ipc.call("workflow.listRuns", {
+      workflowName: params.workflowName,
+      limit: params.limit,
+    });
+    return validateWorkflowListRuns("workflow.listRuns", raw);
+  }
+
+  /**
+   * Run a saved workflow to completion. An ORDINARY promise call — NOT a
+   * stream; see {@link WorkflowRunParams} for the `stream` caveat.
+   */
+  async workflowRun(params: WorkflowRunParams): Promise<WorkflowRunResult> {
+    const raw = await this.ipc.call("workflow.run", {
+      name: params.name,
+      triggeredBy: params.triggeredBy,
+      dryRun: params.dryRun,
+      stream: params.stream,
+      sessionId: params.sessionId,
+      agent: params.agent,
+      paramsOverride: params.paramsOverride,
+    });
+    return validateWorkflowRun("workflow.run", raw);
   }
 
   async close(): Promise<void> {
