@@ -44,9 +44,10 @@ by `test/agents-conformance.test.ts`.
 
 - Captured: 2026-07-22
 - Gateway source: `nimbus-agent/Nimbus` branch `dev/asafgolombek/stage1-wave1a-agents`
-  @ `4981cdec` (Stage 1 Wave 1a). **The generator is not on `main` yet** — until that
+  @ `7b7bf900` (Stage 1 Wave 1a). **The generator is not on `main` yet** — until that
   branch merges, check the branch out before running the command below, or you will
-  get `No such file or directory`.
+  get `No such file or directory`. Once it lands, re-pin this to the `main` commit
+  (the branch SHA does not survive a squash merge).
 - Method: `dispatchAgentsRpc` → `emitBriefWithSynthesis`, driven against an in-memory
   index, so the shape comes from gateway code rather than from hand-authoring.
 
