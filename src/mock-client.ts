@@ -24,6 +24,8 @@ import type {
 } from "./agents.js";
 import type {
   ConsentRespondParams,
+  DiagSnapshot,
+  DiagVersion,
   EgressHead,
   EgressListParams,
   EgressListResult,
@@ -31,7 +33,10 @@ import type {
   EgressProveWindowResult,
   EgressRow,
   EgressVerifyResult,
+  GatewayPingResult,
+  GatewayStatus,
   IndexedItem,
+  IndexMetrics,
   NimbusClientLike,
   RankedSearchItem,
   RankedSearchParams,
@@ -54,6 +59,11 @@ export type MockClientFixtures = {
   egressRows?: EgressRow[];
   egressVerify?: EgressVerifyResult;
   egressProveWindow?: EgressProveWindowResult;
+  gatewayPing?: GatewayPingResult;
+  diagVersion?: DiagVersion;
+  indexMetrics?: IndexMetrics;
+  diagSnapshot?: DiagSnapshot;
+  adminStatus?: GatewayStatus;
   agentBriefs?: Partial<{
     expert: ExpertBrief;
     impact: ImpactBrief;
@@ -220,6 +230,73 @@ export class MockClient implements NimbusClientLike {
 
   async consentRespond(_params: ConsentRespondParams): Promise<{ ok: boolean }> {
     return { ok: true };
+  }
+
+  async gatewayPing(_params?: { includeDrift?: boolean }): Promise<GatewayPingResult> {
+    return (
+      this.fixtures.gatewayPing ?? {
+        version: "mock",
+        uptime: 0,
+        agentLimits: { maxAgentDepth: 5, maxToolCallsPerSession: 50 },
+      }
+    );
+  }
+
+  async diagGetVersion(): Promise<DiagVersion> {
+    return (
+      this.fixtures.diagVersion ?? { version: "mock", commit: null, buildId: null, uptimeMs: 0 }
+    );
+  }
+
+  private defaultIndexMetrics(): IndexMetrics {
+    return {
+      itemCountByService: {},
+      totalItems: 0,
+      indexSizeBytes: 0,
+      embeddingCoveragePercent: 0,
+      lastSuccessfulSyncByConnector: {},
+      queryLatencyP50Ms: 0,
+      queryLatencyP95Ms: 0,
+      queryLatencyP99Ms: 0,
+    };
+  }
+
+  async indexMetrics(): Promise<IndexMetrics> {
+    return this.fixtures.indexMetrics ?? this.defaultIndexMetrics();
+  }
+
+  async diagSnapshot(): Promise<DiagSnapshot> {
+    return (
+      this.fixtures.diagSnapshot ?? {
+        gateway: { version: "mock", uptimeMs: 0 },
+        connectorHealth: [],
+        index: this.defaultIndexMetrics(),
+        hitl: { pendingConsentRequests: 0 },
+        watchers: [],
+        auditLogTail: [],
+        extensions: { disabled_pre_t2: 0, signature_disabled_count: 0 },
+        sandbox: {
+          platform_capabilities: { network: "all_or_nothing", reason: null },
+          linux_helper: null,
+          stale_rules_count: 0,
+        },
+      }
+    );
+  }
+
+  async adminStatus(): Promise<GatewayStatus> {
+    return (
+      this.fixtures.adminStatus ?? {
+        policy: { signatureValid: true, pendingRestart: false, source: "none" },
+        peers: [],
+        connectors: [],
+        namespaces: [],
+        audit: { chainLength: 0, lastHash: "", appendRate1h: 0 },
+        hitl: { pendingApprovals: 0, pendingQuorum: 0 },
+        identity: { operatorValid: true },
+        syncFreshnessMs: 0,
+      }
+    );
   }
 
   async close(): Promise<void> {

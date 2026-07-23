@@ -5,16 +5,58 @@ import {
   validateAgentInvoke,
   validateAgentSession,
   validateAuditList,
+  validateDiagSnapshot,
+  validateDiagVersion,
   validateEgressHead,
   validateEgressList,
   validateEgressProveWindow,
   validateEgressVerify,
+  validateGatewayPing,
+  validateGatewayStatus,
+  validateIndexMetrics,
   validateOk,
   validateQueryItems,
   validateQuerySql,
   validateRankedItems,
   validateSessionTranscript,
 } from "../src/validate.ts";
+
+const INDEX_METRICS = {
+  itemCountByService: { github: 1 },
+  totalItems: 1,
+  indexSizeBytes: 10,
+  embeddingCoveragePercent: 100,
+  lastSuccessfulSyncByConnector: { github: 1, gmail: null },
+  queryLatencyP50Ms: 1,
+  queryLatencyP95Ms: 2,
+  queryLatencyP99Ms: 3,
+};
+
+const DIAG_SNAPSHOT_WIRE = {
+  gateway: { version: "0.22.0", uptimeMs: 10 },
+  connectorHealth: [{ connectorId: "github", state: "healthy", backoffAttempt: 0 }],
+  index: INDEX_METRICS,
+  hitl: { pendingConsentRequests: 1 },
+  watchers: [{ id: "w1", name: "n", enabled: true, lastFiredAtMs: null }],
+  auditLogTail: [{ id: 1 }],
+  extensions: { disabled_pre_t2: 0, signature_disabled_count: 0 },
+  sandbox: {
+    platform_capabilities: { network: "per_host", reason: null },
+    linux_helper: { available: true, reason: null },
+    stale_rules_count: 0,
+  },
+};
+
+const GATEWAY_STATUS_WIRE = {
+  policy: { signatureValid: true, pendingRestart: false, source: "anchor" },
+  peers: [{ peerId: "p1", reachable: true }],
+  connectors: [{ id: "c1", enabled: true, blockedByPolicy: false, health: "healthy" }],
+  namespaces: [{ name: "ns", subscribers: 1 }],
+  audit: { chainLength: 1, lastHash: "h", appendRate1h: 0 },
+  hitl: { pendingApprovals: 0, pendingQuorum: 0 },
+  identity: { operatorValid: true },
+  syncFreshnessMs: 5,
+};
 
 const ROW = {
   id: 1,
@@ -102,6 +144,68 @@ describe("validate — happy paths", () => {
     const out = validateEgressList("m", { rows: [{ ...ROW, sourceId: null }] });
     expect(out.rows[0]?.sourceId).toBeNull();
   });
+
+  test("validateGatewayPing accepts the core shape, optional drift, and passes extras through", () => {
+    const out = validateGatewayPing("m", {
+      version: "0.22.0",
+      uptime: 100,
+      agentLimits: { maxAgentDepth: 6, maxToolCallsPerSession: 40 },
+      drift: { lines: ["a"] },
+      embeddingModel: "minilm",
+    });
+    expect(out.version).toBe("0.22.0");
+    expect(out.drift).toEqual({ lines: ["a"] });
+    expect(out["embeddingModel"]).toBe("minilm");
+  });
+
+  test("validateGatewayPing accepts a response with no drift", () => {
+    const out = validateGatewayPing("m", {
+      version: "0.22.0",
+      uptime: 1,
+      agentLimits: { maxAgentDepth: 6, maxToolCallsPerSession: 40 },
+    });
+    expect(out.drift).toBeUndefined();
+  });
+
+  test("validateDiagVersion accepts null commit/buildId", () => {
+    expect(
+      validateDiagVersion("m", { version: "0.22.0", commit: null, buildId: null, uptimeMs: 1 }),
+    ).toEqual({ version: "0.22.0", commit: null, buildId: null, uptimeMs: 1 });
+  });
+
+  test("validateIndexMetrics accepts the full field list", () => {
+    expect(validateIndexMetrics("m", INDEX_METRICS)).toEqual(INDEX_METRICS);
+  });
+
+  test("validateDiagSnapshot accepts the full nested shape incl. optional auto_update", () => {
+    const withAutoUpdate = {
+      ...DIAG_SNAPSHOT_WIRE,
+      extensions: {
+        disabled_pre_t2: 0,
+        signature_disabled_count: 0,
+        auto_update: { cached_updates_count: 1, interval_hours: 24, air_gap_blocked: true },
+      },
+    };
+    const out = validateDiagSnapshot("m", withAutoUpdate);
+    expect(out.extensions.auto_update).toEqual({
+      cached_updates_count: 1,
+      interval_hours: 24,
+      air_gap_blocked: true,
+    });
+    expect(out.sandbox.linux_helper).toEqual({ available: true, reason: null });
+  });
+
+  test("validateDiagSnapshot accepts a null linux_helper and no auto_update", () => {
+    const out = validateDiagSnapshot("m", DIAG_SNAPSHOT_WIRE);
+    expect(out.extensions.auto_update).toBeUndefined();
+  });
+
+  test("validateGatewayStatus accepts the full snapshot", () => {
+    const out = validateGatewayStatus("m", GATEWAY_STATUS_WIRE);
+    expect(out.policy.source).toBe("anchor");
+    expect(out.peers).toHaveLength(1);
+    expect(out.identity).toEqual({ operatorValid: true });
+  });
 });
 
 describe("validate — rejections throw IpcResponseError", () => {
@@ -151,6 +255,65 @@ describe("validate — rejections throw IpcResponseError", () => {
     expect(() => validateEgressList("m", { rows: [{ ...ROW, sourceId: 7 }] })).toThrow(
       /"sourceId" must be a string or null/,
     );
+  });
+
+  test("validateGatewayPing rejects a missing agentLimits", () => {
+    expect(() => validateGatewayPing("m", { version: "v", uptime: 1 })).toThrow(
+      /expected an object/,
+    );
+  });
+
+  test("validateGatewayPing rejects malformed drift lines", () => {
+    expect(() =>
+      validateGatewayPing("m", {
+        version: "v",
+        uptime: 1,
+        agentLimits: { maxAgentDepth: 1, maxToolCallsPerSession: 1 },
+        drift: { lines: [1, 2] },
+      }),
+    ).toThrow(/drift "lines" must be strings/);
+  });
+
+  test("validateDiagVersion rejects a non-string/non-null commit", () => {
+    expect(() =>
+      validateDiagVersion("m", { version: "v", commit: 7, buildId: null, uptimeMs: 1 }),
+    ).toThrow(/"commit" must be a string or null/);
+  });
+
+  test("validateIndexMetrics rejects a non-numeric itemCountByService value", () => {
+    expect(() =>
+      validateIndexMetrics("m", { ...INDEX_METRICS, itemCountByService: { github: "many" } }),
+    ).toThrow(/"itemCountByService" values must be numbers/);
+  });
+
+  test("validateIndexMetrics rejects a non-number/non-null lastSuccessfulSyncByConnector value", () => {
+    expect(() =>
+      validateIndexMetrics("m", {
+        ...INDEX_METRICS,
+        lastSuccessfulSyncByConnector: { github: "never" },
+      }),
+    ).toThrow(/"lastSuccessfulSyncByConnector" values must be a number or null/);
+  });
+
+  test("validateDiagSnapshot rejects an invalid sandbox network value", () => {
+    expect(() =>
+      validateDiagSnapshot("m", {
+        ...DIAG_SNAPSHOT_WIRE,
+        sandbox: {
+          ...DIAG_SNAPSHOT_WIRE.sandbox,
+          platform_capabilities: { network: "bogus", reason: null },
+        },
+      }),
+    ).toThrow(/"network" must be/);
+  });
+
+  test("validateGatewayStatus rejects an invalid policy source", () => {
+    expect(() =>
+      validateGatewayStatus("m", {
+        ...GATEWAY_STATUS_WIRE,
+        policy: { ...GATEWAY_STATUS_WIRE.policy, source: "bogus" },
+      }),
+    ).toThrow(/"source" must be "anchor", "peer", or "none"/);
   });
 });
 

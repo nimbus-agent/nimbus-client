@@ -43,7 +43,12 @@ export {
 export { IPCClient, type IPCClientOptions } from "./ipc-transport.js";
 export { MockClient, type MockClientFixtures } from "./mock-client.js";
 export {
+  type AuditStatus,
+  type ConnectorHealthEntry,
+  type ConnectorStatus,
   type ConsentRespondParams,
+  type DiagSnapshot,
+  type DiagVersion,
   type EgressCompleteness,
   type EgressHead,
   type EgressListParams,
@@ -53,13 +58,24 @@ export {
   type EgressReceipt,
   type EgressRow,
   type EgressVerifyResult,
+  type GatewayPingResult,
+  type GatewayStatus,
+  type HitlStatusCounts,
+  type IdentityStatus,
   type IndexedItem,
+  type IndexMetrics,
+  type NamespaceStatus,
   NimbusClient,
   type NimbusClientLike,
   type NimbusClientOptions,
+  type PeerStatus,
+  type PolicySource,
+  type PolicyState,
   type RankedSearchItem,
   type RankedSearchParams,
+  type SandboxDiag,
   type SessionTranscript,
+  type WatcherSummary,
 } from "./nimbus-client.js";
 export { getNimbusPaths, type NimbusPaths } from "./paths.js";
 export type {

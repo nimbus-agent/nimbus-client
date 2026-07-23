@@ -167,6 +167,145 @@ describe("NimbusClient method dispatch", () => {
     ).rejects.toThrow(/Unknown or foreign consent request/);
   });
 
+  test("gatewayPing sends includeDrift and validates the core + drift", async () => {
+    const ipc = new FakeIpc([
+      {
+        version: "0.22.0",
+        uptime: 12345,
+        agentLimits: { maxAgentDepth: 6, maxToolCallsPerSession: 40 },
+        drift: { lines: ["3 items changed since last sync"] },
+        embeddingModel: "minilm",
+      },
+    ]);
+    const result = await makeClient(ipc).gatewayPing({ includeDrift: true });
+    expect(ipc.calls[0]).toEqual({
+      method: "gateway.ping",
+      params: { includeDrift: true },
+    });
+    expect(result.version).toBe("0.22.0");
+    expect(result.drift).toEqual({ lines: ["3 items changed since last sync"] });
+    // Extra keys (the embeddingStatus spread) pass through untyped.
+    expect(result["embeddingModel"]).toBe("minilm");
+  });
+
+  test("gatewayPing with no params omits drift", async () => {
+    const ipc = new FakeIpc([
+      {
+        version: "0.22.0",
+        uptime: 1,
+        agentLimits: { maxAgentDepth: 6, maxToolCallsPerSession: 40 },
+      },
+    ]);
+    const result = await makeClient(ipc).gatewayPing();
+    expect(result.drift).toBeUndefined();
+  });
+
+  test("diagGetVersion routes to diag.getVersion and validates commit/buildId nullability", async () => {
+    const ipc = new FakeIpc([
+      { version: "0.22.0", commit: "abc123", buildId: null, uptimeMs: 500 },
+    ]);
+    const result = await makeClient(ipc).diagGetVersion();
+    expect(ipc.calls[0]?.method).toBe("diag.getVersion");
+    expect(result).toEqual({ version: "0.22.0", commit: "abc123", buildId: null, uptimeMs: 500 });
+  });
+
+  test("indexMetrics routes to index.metrics and validates the field list", async () => {
+    const ipc = new FakeIpc([
+      {
+        itemCountByService: { github: 10, gmail: 5 },
+        totalItems: 15,
+        indexSizeBytes: 4096,
+        embeddingCoveragePercent: 87.5,
+        lastSuccessfulSyncByConnector: { github: 1700000000000, gmail: null },
+        queryLatencyP50Ms: 1,
+        queryLatencyP95Ms: 3,
+        queryLatencyP99Ms: 8,
+      },
+    ]);
+    const result = await makeClient(ipc).indexMetrics();
+    expect(ipc.calls[0]?.method).toBe("index.metrics");
+    expect(result.itemCountByService).toEqual({ github: 10, gmail: 5 });
+    expect(result.lastSuccessfulSyncByConnector).toEqual({ github: 1700000000000, gmail: null });
+  });
+
+  test("diagSnapshot routes to diag.snapshot and validates the nested shape", async () => {
+    const ipc = new FakeIpc([
+      {
+        gateway: { version: "0.22.0", uptimeMs: 999 },
+        connectorHealth: [{ connectorId: "github", state: "healthy", backoffAttempt: 0 }],
+        index: {
+          itemCountByService: {},
+          totalItems: 0,
+          indexSizeBytes: 0,
+          embeddingCoveragePercent: 0,
+          lastSuccessfulSyncByConnector: {},
+          queryLatencyP50Ms: 0,
+          queryLatencyP95Ms: 0,
+          queryLatencyP99Ms: 0,
+        },
+        hitl: { pendingConsentRequests: 2 },
+        watchers: [{ id: "w1", name: "watch1", enabled: true, lastFiredAtMs: null }],
+        auditLogTail: [{ id: 1 }],
+        extensions: {
+          disabled_pre_t2: 0,
+          signature_disabled_count: 1,
+          auto_update: { cached_updates_count: 2, interval_hours: 24, air_gap_blocked: false },
+        },
+        sandbox: {
+          platform_capabilities: { network: "per_host", reason: null },
+          linux_helper: { available: true, reason: null },
+          stale_rules_count: 0,
+        },
+      },
+    ]);
+    const result = await makeClient(ipc).diagSnapshot();
+    expect(ipc.calls[0]?.method).toBe("diag.snapshot");
+    expect(result.hitl).toEqual({ pendingConsentRequests: 2 });
+    expect(result.connectorHealth).toEqual([
+      { connectorId: "github", state: "healthy", backoffAttempt: 0 },
+    ]);
+    expect(result.extensions.auto_update).toEqual({
+      cached_updates_count: 2,
+      interval_hours: 24,
+      air_gap_blocked: false,
+    });
+    expect(result.sandbox.linux_helper).toEqual({ available: true, reason: null });
+  });
+
+  test("adminStatus routes to admin.status and validates the full snapshot", async () => {
+    const ipc = new FakeIpc([
+      {
+        policy: { signatureValid: true, pendingRestart: false, source: "anchor", org: "acme" },
+        peers: [{ peerId: "p1", reachable: true, lastSeenMs: 1 }],
+        connectors: [
+          { id: "github", enabled: true, blockedByPolicy: false, health: "healthy", lastSyncMs: 5 },
+        ],
+        namespaces: [{ name: "eng", subscribers: 2 }],
+        audit: { chainLength: 100, lastHash: "abcd", appendRate1h: 3 },
+        hitl: { pendingApprovals: 1, pendingQuorum: 0 },
+        identity: { operatorValid: true, externalId: "ext-1" },
+        syncFreshnessMs: 42,
+      },
+    ]);
+    const result = await makeClient(ipc).adminStatus();
+    expect(ipc.calls[0]?.method).toBe("admin.status");
+    expect(result.policy).toEqual({
+      signatureValid: true,
+      pendingRestart: false,
+      source: "anchor",
+      org: "acme",
+    });
+    expect(result.identity).toEqual({ operatorValid: true, externalId: "ext-1" });
+  });
+
+  test("adminStatus rejects when the Gateway answers Method not found (statusReaders unwired)", async () => {
+    const ipc = new FakeIpc();
+    ipc.call = async () => {
+      throw new Error("Method not found: admin.status");
+    };
+    await expect(makeClient(ipc).adminStatus()).rejects.toThrow(/Method not found/);
+  });
+
   test("askStream returns a handle with a string streamId", async () => {
     const ipc = new FakeIpc([{ streamId: "stream-1" }]);
     const h = makeClient(ipc).askStream("hi");
