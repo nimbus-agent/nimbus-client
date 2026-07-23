@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.7.1](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.7.0...client-v0.7.1) (2026-07-23)
+
+
+### Bug Fixes
+
+* **build:** rebuild against sdk 1.5.1; reject build-machine paths in the bundle ([#17](https://github.com/nimbus-agent/nimbus-client/issues/17)) ([2eac35a](https://github.com/nimbus-agent/nimbus-client/commit/2eac35a8457371251e74a7109b7acbaff7bd69a1))
+
 ## [0.7.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.6.2...client-v0.7.0) (2026-07-23)
 
 
