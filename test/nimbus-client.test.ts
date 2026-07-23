@@ -426,6 +426,235 @@ describe("NimbusClient method dispatch", () => {
     await makeClient(ipc).close();
     expect(disconnected).toBe(true);
   });
+
+  test("sessionAppend sends sessionId/chunkText/role and validates { ok }", async () => {
+    const ipc = new FakeIpc([{ ok: true }]);
+    const result = await makeClient(ipc).sessionAppend({
+      sessionId: "s1",
+      chunkText: "hello there",
+      role: "assistant",
+    });
+    expect(ipc.calls[0]).toEqual({
+      method: "session.append",
+      params: { sessionId: "s1", chunkText: "hello there", role: "assistant" },
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  test("sessionRecall forwards sessionId/query/topK and validates chunks", async () => {
+    const ipc = new FakeIpc([
+      {
+        chunks: [
+          { chunkText: "hit one", role: "user", createdAt: 100, distance: 0.1 },
+          { chunkText: "hit two", role: "tool", createdAt: 200, distance: 0.4 },
+        ],
+      },
+    ]);
+    const result = await makeClient(ipc).sessionRecall({
+      sessionId: "s1",
+      query: "find me",
+      topK: 4,
+    });
+    expect(ipc.calls[0]).toEqual({
+      method: "session.recall",
+      params: { sessionId: "s1", query: "find me", topK: 4 },
+    });
+    expect(result).toEqual({
+      chunks: [
+        { chunkText: "hit one", role: "user", createdAt: 100, distance: 0.1 },
+        { chunkText: "hit two", role: "tool", createdAt: 200, distance: 0.4 },
+      ],
+    });
+  });
+
+  test("sessionRecall tolerates an omitted topK", async () => {
+    const ipc = new FakeIpc([{ chunks: [] }]);
+    await makeClient(ipc).sessionRecall({ sessionId: "s1", query: "q" });
+    expect(ipc.calls[0]?.params).toEqual({ sessionId: "s1", query: "q", topK: undefined });
+  });
+
+  test("sessionList sends no params and validates the session summaries", async () => {
+    const ipc = new FakeIpc([
+      { sessions: [{ sessionId: "s1", lastWriteAt: 1000, chunkCount: 3 }] },
+    ]);
+    const result = await makeClient(ipc).sessionList();
+    expect(ipc.calls[0]).toEqual({ method: "session.list", params: undefined });
+    expect(result).toEqual({ sessions: [{ sessionId: "s1", lastWriteAt: 1000, chunkCount: 3 }] });
+  });
+
+  test("sessionClear forwards sessionId and validates { ok, cleared }", async () => {
+    const ipc = new FakeIpc([{ ok: true, cleared: "s1" }]);
+    const result = await makeClient(ipc).sessionClear({ sessionId: "s1" });
+    expect(ipc.calls[0]).toEqual({ method: "session.clear", params: { sessionId: "s1" } });
+    expect(result).toEqual({ ok: true, cleared: "s1" });
+  });
+
+  test("sessionClear with no params clears every session", async () => {
+    const ipc = new FakeIpc([{ ok: true, cleared: "all" }]);
+    const result = await makeClient(ipc).sessionClear();
+    expect(ipc.calls[0]).toEqual({ method: "session.clear", params: { sessionId: undefined } });
+    expect(result).toEqual({ ok: true, cleared: "all" });
+  });
+
+  test("metricsDora forwards service/since and validates a fully-populated result", async () => {
+    const ipc = new FakeIpc([
+      {
+        service: "checkout",
+        since_ms: 2_592_000_000,
+        computed_at: "2026-07-22T00:00:00.000Z",
+        metrics: {
+          deployment_frequency: { value: 2.5, unit: "deploys_per_day", sample: 40, gap: null },
+          lead_time_for_changes: { value: 3600, unit: "seconds_median", sample: 40, gap: null },
+          change_failure_rate: { value: 0.05, unit: "ratio", sample: 40, gap: null },
+          mttr: { value: 900, unit: "seconds_median", sample: 40, gap: null },
+        },
+      },
+    ]);
+    const result = await makeClient(ipc).metricsDora({ service: "checkout", since: "7d" });
+    expect(ipc.calls[0]).toEqual({
+      method: "metrics.dora",
+      params: { service: "checkout", since: "7d" },
+    });
+    expect(result.metrics.deployment_frequency).toEqual({
+      value: 2.5,
+      unit: "deploys_per_day",
+      sample: 40,
+      gap: null,
+    });
+  });
+
+  test("metricsDora with an unconfigured service returns null values with a gap code, not a rejection", async () => {
+    // Mirrors the Gateway's unconfiguredEnvelope() — an unknown service id
+    // resolves successfully rather than the RPC rejecting.
+    const ipc = new FakeIpc([
+      {
+        service: "unknown-service",
+        since_ms: 2_592_000_000,
+        computed_at: "2026-07-22T00:00:00.000Z",
+        metrics: {
+          deployment_frequency: {
+            value: null,
+            unit: "deploys_per_day",
+            sample: 0,
+            gap: "no_repos",
+          },
+          lead_time_for_changes: {
+            value: null,
+            unit: "seconds_median",
+            sample: 0,
+            gap: "no_repos",
+          },
+          change_failure_rate: { value: null, unit: "ratio", sample: 0, gap: "no_repos" },
+          mttr: { value: null, unit: "seconds_median", sample: 0, gap: "no_repos" },
+        },
+      },
+    ]);
+    const result = await makeClient(ipc).metricsDora({ service: "unknown-service" });
+    expect(result.metrics.deployment_frequency.value).toBeNull();
+    expect(result.metrics.deployment_frequency.gap).toBe("no_repos");
+    expect(result.metrics.mttr).toEqual({
+      value: null,
+      unit: "seconds_median",
+      sample: 0,
+      gap: "no_repos",
+    });
+  });
+
+  test("deployPreflight forwards service/target_ref/max_findings and validates findings", async () => {
+    const ipc = new FakeIpc([
+      {
+        service: "checkout",
+        target_ref: "refs/heads/main",
+        computed_at: "2026-07-22T00:00:00.000Z",
+        verdict: "warn",
+        checks: {
+          active_p1_incidents: {
+            count: 1,
+            findings: [
+              {
+                id: "PD1",
+                title: "Checkout down",
+                status: "triggered",
+                severity: "critical",
+                opened_at_ms: 100,
+                pagerduty_service_id: "svc-1",
+                url: "https://pagerduty.example/incidents/PD1",
+              },
+            ],
+            gap: null,
+          },
+          failing_ci_runs: {
+            count: 1,
+            findings: [
+              {
+                id: "run-1",
+                title: "CI",
+                conclusion: "failure",
+                modified_at_ms: 200,
+                branch: "main",
+                head_sha: "abc123",
+                url: null,
+              },
+            ],
+            gap: null,
+          },
+          merge_conflicts: {
+            count: 1,
+            findings: [
+              {
+                id: "pr-1",
+                title: "PR",
+                number: 42,
+                mergeable_state: "dirty",
+                modified_at_ms: 300,
+                url: "https://github.example/pr/42",
+              },
+            ],
+            gap: null,
+          },
+        },
+      },
+    ]);
+    const result = await makeClient(ipc).deployPreflight({
+      service: "checkout",
+      targetRef: "refs/heads/main",
+      maxFindings: 5,
+    });
+    expect(ipc.calls[0]).toEqual({
+      method: "deploy.preflight",
+      params: { service: "checkout", target_ref: "refs/heads/main", max_findings: 5 },
+    });
+    expect(result.verdict).toBe("warn");
+    expect(result.checks.active_p1_incidents.findings[0]?.status).toBe("triggered");
+    expect(result.checks.failing_ci_runs.findings[0]?.head_sha).toBe("abc123");
+    expect(result.checks.merge_conflicts.findings[0]?.number).toBe(42);
+  });
+
+  test("deployPreflight with an unconfigured service returns verdict ok with gap codes", async () => {
+    const ipc = new FakeIpc([
+      {
+        service: "unknown-service",
+        target_ref: "main",
+        computed_at: "2026-07-22T00:00:00.000Z",
+        verdict: "ok",
+        checks: {
+          active_p1_incidents: { count: 0, findings: [], gap: "no_pagerduty_mapping" },
+          failing_ci_runs: { count: 0, findings: [], gap: "no_repos" },
+          merge_conflicts: { count: 0, findings: [], gap: "no_repos" },
+        },
+      },
+    ]);
+    const result = await makeClient(ipc).deployPreflight({
+      service: "unknown-service",
+      targetRef: "main",
+    });
+    expect(result.verdict).toBe("ok");
+    expect(result.checks.active_p1_incidents).toEqual({
+      count: 0,
+      findings: [],
+      gap: "no_pagerduty_mapping",
+    });
+  });
 });
 
 describe("queryItems result validation", () => {

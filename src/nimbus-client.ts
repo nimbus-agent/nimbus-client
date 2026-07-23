@@ -39,8 +39,10 @@ import {
   validateAuditSummary,
   validateAuditToolCalls,
   validateAuditVerify,
+  validateDeployPreflight,
   validateDiagSnapshot,
   validateDiagVersion,
+  validateDoraMetrics,
   validateEgressHead,
   validateEgressList,
   validateEgressProveWindow,
@@ -52,6 +54,9 @@ import {
   validateQueryItems,
   validateQuerySql,
   validateRankedItems,
+  validateSessionClear,
+  validateSessionList,
+  validateSessionRecall,
   validateSessionTranscript,
 } from "./validate.js";
 
@@ -113,6 +118,80 @@ export type SessionTranscript = {
     auditLogId?: number;
   }>;
   hasMore: boolean;
+};
+
+/**
+ * The role tag on a `session.*` memory chunk. Distinct from
+ * {@link SessionTranscript}'s `"user" | "assistant"` turns — session memory
+ * also stores `"tool"` chunks. Mirrors the Gateway's `SessionMemoryRole`
+ * (`memory/session-memory-store.ts`).
+ */
+export type SessionMemoryRole = "user" | "assistant" | "tool";
+
+/** Parameters for {@link NimbusClient.sessionAppend}. */
+export type SessionAppendParams = {
+  sessionId: string;
+  /** Non-empty after trimming — the Gateway rejects `""` or whitespace-only text. */
+  chunkText: string;
+  role: SessionMemoryRole;
+};
+
+/** Parameters for {@link NimbusClient.sessionRecall}. */
+export type SessionRecallParams = {
+  sessionId: string;
+  query: string;
+  /** The Gateway clamps to 1..32; default 8. */
+  topK?: number;
+};
+
+/**
+ * A single semantic-search hit over a session's memory chunks. Mirrors the
+ * Gateway's `SessionMemoryRecallHit` (`memory/session-memory-store.ts`).
+ */
+export type SessionRecallHit = {
+  chunkText: string;
+  role: SessionMemoryRole;
+  createdAt: number;
+  /** Vector distance — lower is a closer match. */
+  distance: number;
+};
+
+/** Result of {@link NimbusClient.sessionRecall}. */
+export type SessionRecallResult = {
+  chunks: SessionRecallHit[];
+};
+
+/**
+ * One session's summary, as returned by {@link NimbusClient.sessionList}.
+ * Mirrors the Gateway's `listSessions()` row (`memory/session-memory-store.ts`).
+ */
+export type SessionListEntry = {
+  sessionId: string;
+  lastWriteAt: number;
+  chunkCount: number;
+};
+
+/** Result of {@link NimbusClient.sessionList}. */
+export type SessionListResult = {
+  sessions: SessionListEntry[];
+};
+
+/**
+ * Parameters for {@link NimbusClient.sessionClear}. Omit or pass an empty
+ * string for `sessionId` to clear every session (the Gateway's "clear all"
+ * path), matching `handleSessionClear`'s treatment of a blank id.
+ */
+export type SessionClearParams = {
+  sessionId?: string;
+};
+
+/**
+ * Result of {@link NimbusClient.sessionClear}. `cleared` is `"all"` when
+ * every session was cleared, otherwise the cleared session's id.
+ */
+export type SessionClearResult = {
+  ok: boolean;
+  cleared: string;
 };
 
 /**
@@ -454,6 +533,142 @@ export type GatewayStatus = {
 };
 
 /**
+ * A gap code attached to a DORA metric when it could not be fully computed
+ * (missing config, low sample size, etc.) — `null` when the metric is
+ * unqualified. Mirrors the Gateway's `DoraGap` (`metrics/dora.ts`).
+ */
+export type DoraGap =
+  | null
+  | "no_pagerduty_mapping"
+  | "no_repos"
+  | "no_deployment_data"
+  | "low_sample"
+  | "approximate_lead_time"
+  | "mixed_source";
+
+/**
+ * A single DORA metric value. `value` is `null` when the service has no
+ * data for the window (or is unconfigured) — this is a normal, expected
+ * response shape, not an error. Mirrors the Gateway's `DoraMetricValue`
+ * (`metrics/dora.ts`).
+ */
+export type DoraMetricValue = {
+  value: number | null;
+  unit: string;
+  sample: number;
+  gap: DoraGap;
+};
+
+/** Parameters for {@link NimbusClient.metricsDora}. */
+export type MetricsDoraParams = {
+  service: string;
+  /** `\d+(d|h)` duration string, e.g. `"7d"` or `"24h"`. The Gateway default is `"30d"`. */
+  since?: string;
+};
+
+/**
+ * Result of {@link NimbusClient.metricsDora}. Field names mirror the wire
+ * shape verbatim (snake_case) — the Gateway does not camelCase this
+ * response, so a translated copy here would be the thing that drifts.
+ * Mirrors the Gateway's `DoraMetricsResult` (`metrics/dora.ts`).
+ *
+ * An unconfigured service still resolves successfully: every metric comes
+ * back with `value: null` and a `gap` code (`"no_repos"` for the frequency
+ * metric, matching whatever placeholder the Gateway's
+ * `unconfiguredEnvelope()` uses) rather than the call rejecting.
+ */
+export type DoraMetricsResult = {
+  service: string;
+  since_ms: number;
+  computed_at: string;
+  metrics: {
+    deployment_frequency: DoraMetricValue;
+    lead_time_for_changes: DoraMetricValue;
+    change_failure_rate: DoraMetricValue;
+    mttr: DoraMetricValue;
+  };
+};
+
+/**
+ * A gap code attached to a `deploy.preflight` check when it could not be
+ * fully evaluated — `null` when unqualified. Mirrors the Gateway's
+ * `PreflightGap` (`preflight/preflight.ts`).
+ */
+export type PreflightGap =
+  | null
+  | "no_pagerduty_mapping"
+  | "no_repos"
+  | "unknown_mergeable_state"
+  | "pagerduty_urgency_without_priority";
+
+/** An active-incident finding in a `deploy.preflight` result. */
+export type IncidentFinding = {
+  id: string;
+  title: string;
+  status: "triggered" | "acknowledged";
+  severity: string;
+  opened_at_ms: number;
+  pagerduty_service_id: string;
+  url: string | null;
+};
+
+/** A failing-CI-run finding in a `deploy.preflight` result. */
+export type CiFinding = {
+  id: string;
+  title: string;
+  conclusion: "failure" | "cancelled" | "timed_out";
+  modified_at_ms: number;
+  branch: string;
+  head_sha: string | null;
+  url: string | null;
+};
+
+/** A merge-conflict finding in a `deploy.preflight` result. */
+export type PrFinding = {
+  id: string;
+  title: string;
+  number: number;
+  mergeable_state: string;
+  modified_at_ms: number;
+  url: string | null;
+};
+
+/** One `deploy.preflight` check: a count, its findings, and a gap code. Mirrors `PreflightCheck<F>`. */
+export type PreflightCheck<F> = {
+  count: number;
+  findings: readonly F[];
+  gap: PreflightGap;
+};
+
+/** Parameters for {@link NimbusClient.deployPreflight}. */
+export type DeployPreflightParams = {
+  service: string;
+  targetRef: string;
+  /** The Gateway clamps to 1..50; default 10. */
+  maxFindings?: number;
+};
+
+/**
+ * Result of {@link NimbusClient.deployPreflight}. Field names mirror the
+ * wire shape verbatim (snake_case), same rationale as {@link DoraMetricsResult}.
+ * Mirrors the Gateway's `DeployPreflightResult` (`preflight/preflight.ts`).
+ *
+ * An unconfigured service still resolves successfully: `verdict: "ok"` with
+ * every check at `count: 0` and a gap code, rather than the call rejecting.
+ */
+export type DeployPreflightResult = {
+  service: string;
+  target_ref: string;
+  computed_at: string;
+  verdict: "ok" | "warn";
+  checks: {
+    active_p1_incidents: PreflightCheck<IncidentFinding>;
+    failing_ci_runs: PreflightCheck<CiFinding>;
+    merge_conflicts: PreflightCheck<PrFinding>;
+  };
+};
+
+/**
  * The public surface shared by {@link NimbusClient} and
  * {@link MockClient}. A consumer can type against this so the real client and
  * the in-memory stub stay interchangeable (and in sync at compile time).
@@ -471,6 +686,12 @@ export interface NimbusClientLike {
   ): { dispose(): void };
   getSessionTranscript(params: { sessionId: string; limit?: number }): Promise<SessionTranscript>;
   cancelStream(streamId: string): Promise<{ ok: boolean }>;
+  sessionAppend(params: SessionAppendParams): Promise<{ ok: boolean }>;
+  sessionRecall(params: SessionRecallParams): Promise<SessionRecallResult>;
+  sessionList(): Promise<SessionListResult>;
+  sessionClear(params?: SessionClearParams): Promise<SessionClearResult>;
+  metricsDora(params: MetricsDoraParams): Promise<DoraMetricsResult>;
+  deployPreflight(params: DeployPreflightParams): Promise<DeployPreflightResult>;
   queryItems(params: {
     services?: string[];
     types?: string[];
@@ -685,6 +906,67 @@ export class NimbusClient implements NimbusClientLike {
   async cancelStream(streamId: string): Promise<{ ok: boolean }> {
     const raw = await this.ipc.call("engine.cancelStream", { streamId });
     return validateOk("engine.cancelStream", raw);
+  }
+
+  /** Append a chunk to a session's memory (read-write). */
+  async sessionAppend(params: SessionAppendParams): Promise<{ ok: boolean }> {
+    const raw = await this.ipc.call("session.append", {
+      sessionId: params.sessionId,
+      chunkText: params.chunkText,
+      role: params.role,
+    });
+    return validateOk("session.append", raw);
+  }
+
+  /** Semantic search over a session's memory chunks (read-only). */
+  async sessionRecall(params: SessionRecallParams): Promise<SessionRecallResult> {
+    const raw = await this.ipc.call("session.recall", {
+      sessionId: params.sessionId,
+      query: params.query,
+      topK: params.topK,
+    });
+    return validateSessionRecall("session.recall", raw);
+  }
+
+  /** List known sessions with their last-write time and chunk count (read-only). */
+  async sessionList(): Promise<SessionListResult> {
+    return validateSessionList("session.list", await this.ipc.call("session.list"));
+  }
+
+  /**
+   * Clear one session's memory, or every session when `sessionId` is
+   * omitted or `""`.
+   */
+  async sessionClear(params: SessionClearParams = {}): Promise<SessionClearResult> {
+    const raw = await this.ipc.call("session.clear", { sessionId: params.sessionId });
+    return validateSessionClear("session.clear", raw);
+  }
+
+  /**
+   * DORA metrics for a configured service over a lookback window. An
+   * unconfigured `service` still resolves — every metric comes back with
+   * `value: null` and a `gap` code rather than the call rejecting.
+   */
+  async metricsDora(params: MetricsDoraParams): Promise<DoraMetricsResult> {
+    const raw = await this.ipc.call("metrics.dora", {
+      service: params.service,
+      since: params.since,
+    });
+    return validateDoraMetrics("metrics.dora", raw);
+  }
+
+  /**
+   * Pre-deploy readiness checks (active P1 incidents, failing CI runs, merge
+   * conflicts) for a configured service. An unconfigured `service` still
+   * resolves — `verdict: "ok"` with every check at `count: 0` and a gap code.
+   */
+  async deployPreflight(params: DeployPreflightParams): Promise<DeployPreflightResult> {
+    const raw = await this.ipc.call("deploy.preflight", {
+      service: params.service,
+      target_ref: params.targetRef,
+      max_findings: params.maxFindings,
+    });
+    return validateDeployPreflight("deploy.preflight", raw);
   }
 
   async queryItems(params: {
