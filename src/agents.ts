@@ -43,6 +43,7 @@ export type PreflightParams = {
   namespace: string;
   changedSurface?: string[];
 };
+export type WhyParams = { ref: string; line?: number };
 
 export type AgentParamsFor<A extends AgentName> = {
   expert: ExpertParams;
@@ -53,6 +54,7 @@ export type AgentParamsFor<A extends AgentName> = {
   huddle: HuddleParams;
   janitor: JanitorParams;
   preflight: PreflightParams;
+  why: WhyParams;
 }[A];
 
 export type AgentBriefEvent<A extends AgentName> =
