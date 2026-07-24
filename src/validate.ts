@@ -1149,7 +1149,7 @@ export function validateWhyPeek(method: string, v: unknown): WhyPeek {
   const o = record(method, v);
   const subjRaw = o["subject"];
   const subject =
-    subjRaw === null
+    subjRaw === null || subjRaw === undefined
       ? null
       : (() => {
           const s = record(method, subjRaw);
