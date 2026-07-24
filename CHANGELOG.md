@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.12.1](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.12.0...client-v0.12.1) (2026-07-24)
+
+
+### Bug Fixes
+
+* **mock-client:** throw instead of return Promise.reject (S7746) ([#33](https://github.com/nimbus-agent/nimbus-client/issues/33)) ([12b110f](https://github.com/nimbus-agent/nimbus-client/commit/12b110f7482e32febedf61240197a390a033d4c1))
+
 ## [0.12.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.11.0...client-v0.12.0) (2026-07-24)
 
 
