@@ -189,6 +189,12 @@ describe("MockClient", () => {
     await expect(new MockClient().agentsGhost({ file: "a" })).rejects.toThrow("agentBriefs.ghost");
   });
 
+  test("agentsWhyPeek rejects when no whyPeek fixture is configured", async () => {
+    await expect(new MockClient().agentsWhyPeek({ ref: "src/a.ts:42" })).rejects.toThrow(
+      "MockClient: no whyPeek fixture configured",
+    );
+  });
+
   test("consentRespond always resolves ok (no HITL loop in-memory)", async () => {
     expect(await new MockClient().consentRespond({ requestId: "r1", approved: true })).toEqual({
       ok: true,

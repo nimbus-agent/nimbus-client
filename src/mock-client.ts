@@ -239,7 +239,7 @@ export class MockClient implements NimbusClientLike {
   }
   async agentsWhyPeek(_p: WhyParams): Promise<WhyPeek> {
     if (this.fixtures.whyPeek === undefined) {
-      return Promise.reject(new Error("MockClient: no whyPeek fixture configured"));
+      throw new Error("MockClient: no whyPeek fixture configured");
     }
     return this.fixtures.whyPeek;
   }
