@@ -9,6 +9,8 @@ import type {
   ImpactBrief,
   JanitorBrief,
   PreflightBrief,
+  WhyBrief,
+  WhyPeek,
 } from "@nimbus-dev/sdk";
 
 import type {
@@ -21,6 +23,7 @@ import type {
   ImpactParams,
   JanitorParams,
   PreflightParams,
+  WhyParams,
 } from "./agents.js";
 import type {
   AuditSummary,
@@ -131,7 +134,9 @@ export type MockClientFixtures = {
     huddle: HuddleBrief;
     janitor: JanitorBrief;
     preflight: PreflightBrief;
+    why: WhyBrief;
   }>;
+  whyPeek?: WhyPeek;
 };
 
 /**
@@ -228,6 +233,15 @@ export class MockClient implements NimbusClientLike {
   }
   async agentsPreflight(_p: PreflightParams): Promise<PreflightBrief> {
     return this.brief("preflight");
+  }
+  async agentsWhy(_p: WhyParams): Promise<WhyBrief> {
+    return this.brief("why");
+  }
+  async agentsWhyPeek(_p: WhyParams): Promise<WhyPeek> {
+    if (this.fixtures.whyPeek === undefined) {
+      return Promise.reject(new Error("MockClient: no whyPeek fixture configured"));
+    }
+    return this.fixtures.whyPeek;
   }
 
   async getSessionTranscript(_params: {
@@ -537,3 +551,29 @@ export class MockClient implements NimbusClientLike {
     /* noop */
   }
 }
+
+/**
+ * High-fidelity `WhyBrief` sample: one finding per `WhyLane`, for consumers
+ * that want a realistic fixture instead of constructing their own. Null/empty
+ * variants stay the consumer's own test to build (YAGNI) — this is the one
+ * rich fixture the client ships.
+ */
+export const WHY_BRIEF_FIXTURE: WhyBrief = {
+  agentVersion: 1,
+  generatedAt: 1,
+  latencyMs: 5,
+  gaps: [],
+  kind: "why",
+  query: { ref: "src/retry.ts", line: 42 },
+  subject: { repoRoot: "/repo", filePath: "src/retry.ts", lineNo: 42, symbol: "retryBackoff" },
+  findings: (
+    ["authorship", "pull_request", "ticket", "discussion", "driver", "downstream"] as const
+  ).map((lane, i) => ({
+    lane,
+    title: `${lane} finding`,
+    detail: `${lane} detail`,
+    url: `https://x/${lane}`,
+    occurredAt: 1_700_000_000_000 + i,
+    entityId: `e${i}`,
+  })),
+};

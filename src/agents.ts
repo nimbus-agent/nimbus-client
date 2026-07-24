@@ -1,5 +1,5 @@
 /**
- * The `agents.*` namespace: eight read-only, never-HITL built-in agents.
+ * The `agents.*` namespace: nine read-only, never-HITL built-in agents.
  *
  * Each method returns `{ sessionId }` immediately, then the gateway emits
  * EITHER `<agent>.briefReady` OR `<agent>.briefError` for that session. Both
@@ -43,6 +43,7 @@ export type PreflightParams = {
   namespace: string;
   changedSurface?: string[];
 };
+export type WhyParams = { ref: string; line?: number };
 
 export type AgentParamsFor<A extends AgentName> = {
   expert: ExpertParams;
@@ -53,6 +54,7 @@ export type AgentParamsFor<A extends AgentName> = {
   huddle: HuddleParams;
   janitor: JanitorParams;
   preflight: PreflightParams;
+  why: WhyParams;
 }[A];
 
 export type AgentBriefEvent<A extends AgentName> =

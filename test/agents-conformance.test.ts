@@ -18,7 +18,7 @@ import golden from "./fixtures/agent-briefs.json" with { type: "json" };
 const fixtures = golden as Record<string, { sessionId: string; brief: string; findings: unknown }>;
 
 describe("agents.* briefReady conformance", () => {
-  test("the fixture covers all eight agents", () => {
+  test("the fixture covers all nine agents", () => {
     expect(Object.keys(fixtures).sort()).toEqual([...AGENT_NAMES].sort());
   });
 

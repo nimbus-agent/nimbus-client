@@ -39,15 +39,18 @@ this file to make the test pass.
 
 ## `agent-briefs.json`
 
-Golden `<agent>.briefReady` payloads for all eight `agents.*` methods, consumed
+Golden `<agent>.briefReady` payloads for all nine `agents.*` methods, consumed
 by `test/agents-conformance.test.ts`.
 
-- Captured: 2026-07-22
-- Gateway source: `nimbus-agent/Nimbus` branch `dev/asafgolombek/stage1-wave1a-agents`
-  @ `7b7bf900` (Stage 1 Wave 1a). **The generator is not on `main` yet** — until that
-  branch merges, check the branch out before running the command below, or you will
-  get `No such file or directory`. Once it lands, re-pin this to the `main` commit
-  (the branch SHA does not survive a squash merge).
+- Regenerated: 2026-07-24 — added the ninth agent `why` (why-lens step 2). The
+  generator now includes a `why` entry in its `PARAMS`; the `why` brief's subject
+  resolves to `null` here because the generator runs against an empty in-memory
+  index with no `[[filesystem.roots]]`, which is the expected degraded shape.
+- Captured (prior 8): 2026-07-22
+- Gateway source: `nimbus-agent/Nimbus` — the `why` regen came from the
+  `dev/asafgolombek/why-lens-step2-client-hop` branch (adds `why` to
+  `scripts/gen-agent-brief-fixtures.ts`); re-pin to the `main` commit once it
+  merges (the branch SHA does not survive a squash merge).
 - Method: `dispatchAgentsRpc` → `emitBriefWithSynthesis`, driven against an in-memory
   index, so the shape comes from gateway code rather than from hand-authoring.
 

@@ -10,6 +10,8 @@ import type {
   JanitorBrief,
   NimbusItem,
   PreflightBrief,
+  WhyBrief,
+  WhyPeek,
 } from "@nimbus-dev/sdk";
 
 import {
@@ -28,6 +30,7 @@ import {
   type PreflightParams,
   parseBriefError,
   parseBriefReady,
+  type WhyParams,
 } from "./agents.js";
 import { createAskStream } from "./ask-stream.js";
 import { IPCClient } from "./ipc-transport.js";
@@ -66,6 +69,7 @@ import {
   validateSessionList,
   validateSessionRecall,
   validateSessionTranscript,
+  validateWhyPeek,
   validateWorkflowList,
   validateWorkflowListRuns,
   validateWorkflowRun,
@@ -1016,6 +1020,8 @@ export interface NimbusClientLike {
   agentsHuddle(p?: HuddleParams, o?: { timeoutMs?: number }): Promise<HuddleBrief>;
   agentsJanitor(p: JanitorParams, o?: { timeoutMs?: number }): Promise<JanitorBrief>;
   agentsPreflight(p: PreflightParams, o?: { timeoutMs?: number }): Promise<PreflightBrief>;
+  agentsWhy(p: WhyParams, o?: { timeoutMs?: number }): Promise<WhyBrief>;
+  agentsWhyPeek(p: WhyParams): Promise<WhyPeek>;
   connectorListStatus(params?: { serviceId?: string }): Promise<ConnectorSyncStatus[]>;
   connectorStatus(params: ConnectorStatusParams): Promise<ConnectorStatusResult>;
   connectorHealthHistory(
@@ -1205,6 +1211,16 @@ export class NimbusClient implements NimbusClientLike {
   }
   agentsPreflight(p: PreflightParams, o?: { timeoutMs?: number }): Promise<PreflightBrief> {
     return this.runAgent("preflight", p, o);
+  }
+  agentsWhy(p: WhyParams, o?: { timeoutMs?: number }): Promise<WhyBrief> {
+    return this.runAgent("why", p, o);
+  }
+  async agentsWhyPeek(p: WhyParams): Promise<WhyPeek> {
+    const raw = await this.ipc.call("agents.whyPeek", {
+      ref: p.ref,
+      ...(p.line === undefined ? {} : { line: p.line }),
+    });
+    return validateWhyPeek("agents.whyPeek", raw);
   }
 
   async getSessionTranscript(params: {

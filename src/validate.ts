@@ -9,6 +9,7 @@
  * or optional fields.
  */
 
+import type { WhyPeek } from "@nimbus-dev/sdk";
 import type {
   AuditSummary,
   AuditToolCallsResult,
@@ -1140,5 +1141,57 @@ export function validateWorkflowRun(method: string, v: unknown): WorkflowRunResu
     runId: str(method, o, "runId"),
     dryRun: bool(method, o, "dryRun"),
     stepResults: arr(method, o["stepResults"]).map((s) => validateWorkflowStepResult(method, s)),
+  };
+}
+
+/** Result of `agents.whyPeek` — a synchronous one-line "why" answer, not a brief. */
+export function validateWhyPeek(method: string, v: unknown): WhyPeek {
+  const o = record(method, v);
+  const subjRaw = o["subject"];
+  const subject =
+    subjRaw === null || subjRaw === undefined
+      ? null
+      : (() => {
+          const s = record(method, subjRaw);
+          return {
+            repoRoot: str(method, s, "repoRoot"),
+            filePath: str(method, s, "filePath"),
+            lineNo: num(method, s, "lineNo"),
+          };
+        })();
+  const prRaw = o["pr"];
+  const pr =
+    prRaw === null || prRaw === undefined
+      ? null
+      : (() => {
+          const p = record(method, prRaw);
+          return {
+            number: nullableNum(method, p, "number"),
+            title: str(method, p, "title"),
+            url: nullableStr(method, p, "url"),
+          };
+        })();
+  const tRaw = o["ticket"];
+  const ticket =
+    tRaw === null || tRaw === undefined
+      ? null
+      : (() => {
+          const t = record(method, tRaw);
+          return {
+            key: str(method, t, "key"),
+            title: str(method, t, "title"),
+            url: nullableStr(method, t, "url"),
+          };
+        })();
+  return {
+    subject,
+    author: nullableStr(method, o, "author"),
+    authorEmail: nullableStr(method, o, "authorEmail"),
+    commitSha: nullableStr(method, o, "commitSha"),
+    committedAt: nullableNum(method, o, "committedAt"),
+    commitSubject: nullableStr(method, o, "commitSubject"),
+    pr,
+    ticket,
+    hasMore: bool(method, o, "hasMore"),
   };
 }

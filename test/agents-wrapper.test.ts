@@ -5,7 +5,7 @@ import { AgentBriefError, AgentTimeoutError } from "../src/agents.ts";
 import { FakeIpc, makeClient } from "./_fake-ipc.ts";
 
 /**
- * Covers the untested correlator behind the eight `agentsX` public methods:
+ * Covers the untested correlator behind the nine `agentsX` public methods:
  * `subscribeAgentBrief` (dual-notification register/dispose) and the private
  * `runAgent` (buffering, session-id filtering, error/timeout cleanup). All
  * reached through the public surface, per the review that flagged the gap.

@@ -17,6 +17,11 @@ export type {
   JanitorBrief,
   NimbusItem,
   PreflightBrief,
+  WhyBrief,
+  WhyFinding,
+  WhyLane,
+  WhyPeek,
+  WhySubject,
 } from "@nimbus-dev/sdk";
 export {
   AgentBriefError,
@@ -32,6 +37,7 @@ export {
   type ImpactParams,
   type JanitorParams,
   type PreflightParams,
+  type WhyParams,
 } from "./agents.js";
 export {
   discoverSocketPath,

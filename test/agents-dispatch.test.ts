@@ -36,6 +36,7 @@ const PARAMS = {
   huddle: {},
   janitor: { resourceRef: "repo:acme/x#branch/wip" },
   preflight: { ref: "HEAD", namespace: "payments" },
+  why: { ref: "src/x.ts:42" },
 } as const;
 
 /** Invoke each public method by name, so a mis-wired delegation shows up here. */
@@ -48,6 +49,7 @@ const CALL: Record<AgentName, (c: NimbusClientLike) => Promise<AgentBrief>> = {
   huddle: (c) => c.agentsHuddle(PARAMS.huddle),
   janitor: (c) => c.agentsJanitor(PARAMS.janitor),
   preflight: (c) => c.agentsPreflight(PARAMS.preflight),
+  why: (c) => c.agentsWhy(PARAMS.why),
 };
 
 describe("every agentsX method dispatches to its own agent", () => {
