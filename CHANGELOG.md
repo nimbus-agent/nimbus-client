@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.12.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.11.0...client-v0.12.0) (2026-07-24)
+
+
+### Features
+
+* expose agents.why + agents.whyPeek (client 0.12.0) ([#31](https://github.com/nimbus-agent/nimbus-client/issues/31)) ([a19e17a](https://github.com/nimbus-agent/nimbus-client/commit/a19e17ac477461b569f2e46113b406904f724a7d))
+
 ## [0.11.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.10.0...client-v0.11.0) (2026-07-23)
 
 
