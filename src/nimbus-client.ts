@@ -34,7 +34,13 @@ import {
 } from "./agents.js";
 import { createAskStream } from "./ask-stream.js";
 import { IPCClient } from "./ipc-transport.js";
-import type { AskStreamHandle, AskStreamOptions, HitlRequest } from "./stream-events.js";
+import type {
+  AskStreamHandle,
+  AskStreamOptions,
+  HitlRequest,
+  WorkflowRunStreamHandle,
+  WorkflowRunStreamParams,
+} from "./stream-events.js";
 import {
   validateAgentInvoke,
   validateAgentSession,
@@ -75,6 +81,7 @@ import {
   validateWorkflowRun,
   validateWorkflowSave,
 } from "./validate.js";
+import { createWorkflowRunStream } from "./workflow-stream.js";
 
 export type NimbusClientOptions = {
   socketPath: string;
@@ -833,6 +840,25 @@ export type GatedRejection = { status: "rejected"; reason: string };
  */
 export type ConnectorAddMcpResult = { ok: true; serviceId: string } | GatedRejection;
 
+/**
+ * Payload of the `connector.configChanged` notification, delivered via
+ * {@link NimbusClientLike.subscribeConnectorConfigChanged}.
+ *
+ * The Gateway emits one after every connector config mutation — `setConfig`,
+ * `pause`, `resume`, `setInterval` — carrying the FULL post-mutation snapshot, so
+ * a client can reconcile its row without re-reading `connectorListStatus`.
+ *
+ * `depth` is the Gateway's `ReindexDepth` (`"metadata_only" | "summary" | "full"`),
+ * typed loosely here: a new depth is a Gateway-side addition, and narrowing it
+ * would turn that into a breaking change for this package.
+ */
+export type ConnectorConfigChanged = {
+  readonly service: string;
+  readonly intervalMs: number;
+  readonly depth: string;
+  readonly enabled: boolean;
+};
+
 /** Parameters for {@link NimbusClient.connectorRemove}. */
 export type ConnectorRemoveParams = { serviceId: string };
 
@@ -950,9 +976,9 @@ export type WorkflowRunResult = {
  * immediately and streams tokens as notifications). Passing `stream: true`
  * additionally makes the Gateway emit `agent.chunk` notifications
  * (`{ text: string }` — the same plumbing `agent.invoke`'s `stream` option
- * uses) while the run executes; this client does not currently expose a
- * subscription helper for that channel, so a caller wanting live output must
- * listen for it on the lower-level transport.
+ * uses) while the run executes, but this method ignores them and still resolves
+ * once with the final result. To consume them use
+ * {@link NimbusClientLike.workflowRunStream}, which sets the flag itself.
  */
 export type WorkflowRunParams = {
   name: string;
@@ -977,6 +1003,9 @@ export interface NimbusClientLike {
   ): Promise<{ reply?: string } & Record<string, unknown>>;
   askStream(input: string, opts?: AskStreamOptions): AskStreamHandle;
   subscribeHitl(handler: (req: HitlRequest) => void): { dispose(): void };
+  subscribeConnectorConfigChanged(handler: (ev: ConnectorConfigChanged) => void): {
+    dispose(): void;
+  };
   subscribeAgentBrief<A extends AgentName>(
     agent: A,
     handler: (ev: AgentBriefEvent<A>) => void,
@@ -1041,6 +1070,7 @@ export interface NimbusClientLike {
   workflowDelete(params: WorkflowDeleteParams): Promise<{ ok: boolean }>;
   workflowListRuns(params: WorkflowListRunsParams): Promise<WorkflowListRunsResult>;
   workflowRun(params: WorkflowRunParams): Promise<WorkflowRunResult>;
+  workflowRunStream(params: WorkflowRunStreamParams): WorkflowRunStreamHandle;
   close(): Promise<void>;
 }
 
@@ -1099,6 +1129,44 @@ export class NimbusClient implements NimbusClientLike {
     return {
       dispose: () => {
         this.ipc.offNotification("agent.hitlBatch", onBatch);
+      },
+    };
+  }
+
+  /**
+   * React to connector config mutations instead of polling `connectorListStatus`.
+   *
+   * The Gateway already emits `connector.configChanged` after every `setConfig` /
+   * `pause` / `resume` / `setInterval`, carrying the full post-mutation snapshot.
+   * A malformed payload is DROPPED rather than surfaced — same posture as
+   * {@link NimbusClient.subscribeHitl}: a notification has no caller to reject to,
+   * so the alternative is throwing inside the transport's dispatch loop.
+   */
+  subscribeConnectorConfigChanged(handler: (ev: ConnectorConfigChanged) => void): {
+    dispose(): void;
+  } {
+    const onChanged = (params: unknown): void => {
+      if (typeof params !== "object" || params === null) return;
+      const p = params as Record<string, unknown>;
+      if (
+        typeof p["service"] !== "string" ||
+        typeof p["intervalMs"] !== "number" ||
+        typeof p["depth"] !== "string" ||
+        typeof p["enabled"] !== "boolean"
+      ) {
+        return;
+      }
+      handler({
+        service: p["service"],
+        intervalMs: p["intervalMs"],
+        depth: p["depth"],
+        enabled: p["enabled"],
+      });
+    };
+    this.ipc.onNotification("connector.configChanged", onChanged);
+    return {
+      dispose: () => {
+        this.ipc.offNotification("connector.configChanged", onChanged);
       },
     };
   }
@@ -1620,6 +1688,22 @@ export class NimbusClient implements NimbusClientLike {
       paramsOverride: params.paramsOverride,
     });
     return validateWorkflowRun("workflow.run", raw);
+  }
+
+  /**
+   * Run a saved workflow and observe its per-step output as it happens.
+   *
+   * `stream: true` is set for you. Iterate for `chunk` events and a terminal
+   * `done`/`error`, or just `await handle.result` for the same value
+   * {@link NimbusClient.workflowRun} resolves.
+   *
+   * ONE AT A TIME PER CONNECTION. The Gateway sends workflow chunks on the
+   * untagged `agent.chunk` — the same method `askStream` and `agent.invoke` use —
+   * so a live handle sees every chunk on the connection and cannot tell them
+   * apart. See {@link WorkflowRunStreamHandle}.
+   */
+  workflowRunStream(params: WorkflowRunStreamParams): WorkflowRunStreamHandle {
+    return createWorkflowRunStream(this.ipc, params, validateWorkflowRun);
   }
 
   async close(): Promise<void> {
