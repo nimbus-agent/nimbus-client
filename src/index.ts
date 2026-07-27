@@ -60,6 +60,7 @@ export {
   type ConnectorAddMcpResult,
   type ConnectorAuthParams,
   type ConnectorAuthResult,
+  type ConnectorConfigChanged,
   type ConnectorHealthEntry,
   type ConnectorHealthHistoryEntry,
   type ConnectorHealthHistoryParams,
@@ -145,5 +146,8 @@ export type {
   AskStreamOptions,
   HitlRequest,
   StreamEvent,
+  WorkflowRunEvent,
+  WorkflowRunStreamHandle,
+  WorkflowRunStreamParams,
 } from "./stream-events.js";
 export { IpcResponseError } from "./validate.js";

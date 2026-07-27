@@ -35,6 +35,7 @@ import type {
   ConnectorAddMcpResult,
   ConnectorAuthParams,
   ConnectorAuthResult,
+  ConnectorConfigChanged,
   ConnectorHealthHistoryEntry,
   ConnectorHealthHistoryParams,
   ConnectorReindexParams,
@@ -90,6 +91,9 @@ import type {
   AskStreamOptions,
   HitlRequest,
   StreamEvent,
+  WorkflowRunEvent,
+  WorkflowRunStreamHandle,
+  WorkflowRunStreamParams,
 } from "./stream-events.js";
 
 export type MockClientFixtures = {
@@ -125,6 +129,8 @@ export type MockClientFixtures = {
   workflowList?: WorkflowListResult;
   workflowListRuns?: WorkflowListRunsResult;
   workflowRun?: WorkflowRunResult;
+  /** Chunks replayed by {@link MockClient.workflowRunStream} before its `done` event. */
+  workflowRunChunks?: string[];
   agentBriefs?: Partial<{
     expert: ExpertBrief;
     impact: ImpactBrief;
@@ -192,6 +198,12 @@ export class MockClient implements NimbusClientLike {
   }
 
   subscribeHitl(_handler: (req: HitlRequest) => void): { dispose(): void } {
+    return { dispose: () => undefined };
+  }
+
+  subscribeConnectorConfigChanged(_handler: (ev: ConnectorConfigChanged) => void): {
+    dispose(): void;
+  } {
     return { dispose: () => undefined };
   }
 
@@ -545,6 +557,35 @@ export class MockClient implements NimbusClientLike {
         stepResults: [],
       }
     );
+  }
+
+  workflowRunStream(params: WorkflowRunStreamParams): WorkflowRunStreamHandle {
+    const chunks = this.fixtures.workflowRunChunks ?? ["mock ", "workflow"];
+    const value = this.fixtures.workflowRun ?? {
+      runId: "mock-run",
+      dryRun: params.dryRun ?? false,
+      stepResults: [],
+    };
+    let i = 0;
+    return {
+      result: Promise.resolve(value),
+      [Symbol.asyncIterator](): AsyncIterator<WorkflowRunEvent> {
+        return {
+          async next(): Promise<IteratorResult<WorkflowRunEvent>> {
+            if (i < chunks.length) {
+              const text = chunks[i] as string;
+              i += 1;
+              return { value: { type: "chunk", text }, done: false };
+            }
+            if (i === chunks.length) {
+              i += 1;
+              return { value: { type: "done", result: value }, done: false };
+            }
+            return { value: undefined as unknown as WorkflowRunEvent, done: true };
+          },
+        };
+      },
+    };
   }
 
   async close(): Promise<void> {
