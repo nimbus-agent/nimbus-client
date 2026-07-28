@@ -5,7 +5,7 @@ consumes to talk to the local gateway.
 
 Historical context for how this client's surface was sequenced lives in the
 gateway repo's
-**[Ecosystem Roadmap](https://github.com/nimbus-agent/Nimbus/blob/main/docs/ecosystem-roadmap.md)**
+**[ECOSYSTEM.md](https://github.com/nimbus-agent/.github/blob/main/ECOSYSTEM.md)**
 (closed 2026-07-24 — kept as the record of *why* the work was ordered that way,
 not as a live plan). Live planning for this repo lives here.
 
