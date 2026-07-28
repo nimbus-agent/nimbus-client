@@ -15,7 +15,7 @@ bun install
 ## Develop
 
 ```bash
-bun run typecheck   # tsc --noEmit (src) + tsc -p tsconfig.test.json (tests + scripts)
+bun run typecheck   # tsc --noEmit over tsconfig.json (src + test + scripts in one project)
 bun run lint        # biome check .  (whole tree)
 bun run test        # bun test
 bun run build       # tsc → dist/ (JS + .d.ts + declaration maps) + bundled CJS
@@ -25,8 +25,9 @@ bun run build       # tsc → dist/ (JS + .d.ts + declaration maps) + bundled CJ
 
 - **One runtime dependency.** `@nimbus-dev/client` declares a single runtime
   dependency, [`@nimbus-dev/sdk`](https://github.com/nimbus-agent/nimbus-sdk),
-  consumed as the published `^1.3.0`. Do not add another runtime dependency; if
-  you need a helper, inline it.
+  consumed as the published `^1.6.0`. The floor is asserted in
+  `scripts/check-package-identity.test.ts` — bump both together. Do not add
+  another runtime dependency; if you need a helper, inline it.
 - **No `any`; TypeScript strict.** Use `unknown` for data crossing a boundary and
   narrow with a type guard. Biome enforces the rules in `biome.json`, including
   `noExplicitAny` and `noConsole` in `src/` (`scripts/` and `test/` relax
@@ -57,7 +58,9 @@ bun run build       # tsc → dist/ (JS + .d.ts + declaration maps) + bundled CJ
 - Use [Conventional Commits](https://www.conventionalcommits.org/) — release-please
   derives the version bump and changelog from them.
 - `bun run typecheck && bun run lint && bun run build && bun test` must pass
-  (CI runs the same on Ubuntu).
+  (CI runs the same on Ubuntu, Windows and macOS, then additionally smoke-tests
+  the CJS bundle under Node and asserts no build-machine path is baked into
+  `dist/index.cjs`; SonarCloud runs `bun run test:coverage` as a blocking gate).
 
 ## Releases
 
