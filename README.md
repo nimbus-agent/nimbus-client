@@ -15,19 +15,54 @@ Run `bun run build` in this package before publishing (`prepublishOnly` does thi
 ## Quickstart
 
 ```typescript
-import { NimbusClient, IPCClient } from "@nimbus-dev/client";
+import { NimbusClient, IPCClient, discoverSocketPath } from "@nimbus-dev/client";
+
+// Resolves the running gateway's endpoint: the `gateway.json` state file first,
+// else the per-platform default (`\\.\pipe\nimbus-gateway` on Windows,
+// `$TMPDIR/nimbus-gateway.sock` on macOS, `$XDG_RUNTIME_DIR/nimbus-gateway.sock`
+// on Linux).
+const { socketPath } = await discoverSocketPath();
 
 const client = await NimbusClient.open({
-  socketPath: "/tmp/nimbus-gateway.sock",
+  socketPath,
   requestTimeoutMs: 30_000, // optional; per-request timeout, 0 disables. Default 30s.
 });
 const out = await client.queryItems({ services: ["github"], limit: 10 });
 await client.close();
 ```
 
+To point at a specific socket instead, pass it as an override — e.g. a Linux box
+with no `XDG_RUNTIME_DIR`:
+
+```typescript
+const { socketPath } = await discoverSocketPath({ override: "/tmp/nimbus-gateway.sock" });
+```
+
 `NimbusClient` and `MockClient` both implement `NimbusClientLike`, so you can type
 against the interface and swap the in-memory `MockClient` into unit tests when no
 Gateway process is available.
+
+### What's exposed
+
+`NimbusClientLike` (see [`src/index.ts`](./src/index.ts) for every exported type)
+covers these gateway namespaces:
+
+| Namespace | Methods |
+| --- | --- |
+| Ask / agents | `agentInvoke`, the nine briefs (`agentsExpert`, `agentsImpact`, `agentsCatchup`, `agentsGhost`, `agentsConflicts`, `agentsHuddle`, `agentsJanitor`, `agentsPreflight`, `agentsWhy`) + `agentsWhyPeek` |
+| Index & search | `queryItems`, `searchRanked`, `querySql` |
+| Sessions | `getSessionTranscript`, `sessionAppend`, `sessionRecall`, `sessionList`, `sessionClear` |
+| Audit | `auditList`, `auditVerify`, `auditGetSummary`, `auditToolCalls` |
+| Egress | `egressHead`, `egressList`, `egressVerify`, `egressProveWindow` |
+| Connectors | `connectorListStatus`, `connectorStatus`, `connectorHealthHistory`, `connectorPause`, `connectorResume`, `connectorSetInterval`, `connectorSetConfig`, `connectorSync`, `connectorAuth`, `connectorAddMcp`, `connectorRemove`, `connectorReindex` |
+| Workflows | `workflowList`, `workflowSave`, `workflowDelete`, `workflowListRuns`, `workflowRun` |
+| Metrics & deploy | `metricsDora`, `deployPreflight` |
+| Consent | `consentRespond` |
+| Diagnostics | `gatewayPing`, `diagGetVersion`, `diagSnapshot`, `indexMetrics`, `adminStatus` |
+
+Streaming and subscriptions: `askStream` (`AskStreamHandle`), `workflowRunStream`
+(`WorkflowRunStreamHandle`), `subscribeHitl` (`HitlRequest`),
+`subscribeConnectorConfigChanged` (`ConnectorConfigChanged`), and `cancelStream`.
 
 ### Validated responses
 

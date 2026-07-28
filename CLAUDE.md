@@ -12,17 +12,20 @@ gateway (`nimbus start`) without hand-rolling the IPC contract. Published to npm
 
 - **Runtime:** Bun v1.2+ · **Language:** TypeScript 7.x strict · **Linter:** Biome
 - **Single runtime dependency:** [`@nimbus-dev/sdk`](https://github.com/nimbus-agent/nimbus-sdk),
-  pinned to the published `^1.3.0` (never `workspace:*` in this standalone repo).
+  pinned to the published `^1.6.0` (never `workspace:*` in this standalone repo).
+  The floor lives in `scripts/check-package-identity.test.ts` — that assertion is
+  the source of truth; bump it and `package.json` together.
 - **No `any`** — use `unknown` for external data; strict mode is non-negotiable.
 
 ## Commands
 
 ```bash
-bun run typecheck   # tsc --noEmit (src) + tsc -p tsconfig.test.json (tests + scripts)
-bun run lint        # biome check .  (whole tree; test/ + scripts/ have rule overrides)
-bun run build       # dist/ ESM + bundled CJS + .d.ts
-bun run test        # bun test
-bun run verify:sdk  # pack a sibling ../nimbus-sdk and test against it (pre-release integration)
+bun run typecheck      # tsc --noEmit over tsconfig.json (src + test + scripts in one project)
+bun run lint           # biome check .  (whole tree; test/ + scripts/ have rule overrides)
+bun run build          # dist/ ESM + bundled CJS + .d.ts
+bun run test           # bun test
+bun run test:coverage  # lcov → coverage/lcov.info; what the SonarCloud gate consumes
+bun run verify:sdk     # pack a sibling ../nimbus-sdk and test against it (pre-release integration)
 ```
 
 ## Cross-repo relationships

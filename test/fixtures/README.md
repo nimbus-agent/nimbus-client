@@ -47,10 +47,8 @@ by `test/agents-conformance.test.ts`.
   resolves to `null` here because the generator runs against an empty in-memory
   index with no `[[filesystem.roots]]`, which is the expected degraded shape.
 - Captured (prior 8): 2026-07-22
-- Gateway source: `nimbus-agent/Nimbus` — the `why` regen came from the
-  `dev/asafgolombek/why-lens-step2-client-hop` branch (adds `why` to
-  `scripts/gen-agent-brief-fixtures.ts`); re-pin to the `main` commit once it
-  merges (the branch SHA does not survive a squash merge).
+- Gateway source: `nimbus-agent/Nimbus` `main` @ `f6d516a5` (#825) — the commit
+  that adds `why` to `scripts/gen-agent-brief-fixtures.ts`.
 - Method: `dispatchAgentsRpc` → `emitBriefWithSynthesis`, driven against an in-memory
   index, so the shape comes from gateway code rather than from hand-authoring.
 
