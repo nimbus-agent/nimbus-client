@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.14.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.13.0...client-v0.14.0) (2026-07-29)
+
+
+### Features
+
+* **ipc:** preserve JSON-RPC code and data on rejection ([#44](https://github.com/nimbus-agent/nimbus-client/issues/44)) ([61aa4fb](https://github.com/nimbus-agent/nimbus-client/commit/61aa4fb86ff528904c202a128aa443740cac160a))
+
 ## [0.13.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.12.1...client-v0.13.0) (2026-07-27)
 
 
