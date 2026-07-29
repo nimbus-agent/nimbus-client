@@ -46,7 +46,14 @@ export {
   readGatewayState,
   type SocketDiscoveryResult,
 } from "./discovery.js";
-export { IPCClient, type IPCClientOptions } from "./ipc-transport.js";
+export {
+  IPCClient,
+  type IPCClientOptions,
+  isJsonRpcError,
+  JsonRpcError,
+  jsonRpcErrorCode,
+  jsonRpcErrorData,
+} from "./ipc-transport.js";
 export { MockClient, type MockClientFixtures } from "./mock-client.js";
 export {
   type AuditStatus,

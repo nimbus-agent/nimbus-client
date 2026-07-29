@@ -47,6 +47,76 @@ export function jsonRpcErrorMessage(err: unknown): string {
   return msg;
 }
 
+/**
+ * Marks a `JsonRpcError` structurally rather than by prototype.
+ *
+ * `instanceof` is not reliable here: a consumer can end up with two copies of
+ * this package in its dependency graph (npm/bun hoisting, or a workspace link
+ * beside a published copy), and an error constructed by one copy fails
+ * `instanceof` against the other's class. The brand travels with the value.
+ */
+const JSON_RPC_ERROR_BRAND = "nimbus-dev/client:json-rpc-error";
+
+/**
+ * A JSON-RPC error response, surfaced with its `code` and `data` intact.
+ *
+ * Before this existed the transport rejected with a bare `new Error(message)`,
+ * so a caller got the human-readable text and nothing else. Every typed error
+ * the Gateway defines — `-32021` "the embedding runtime is still warming", and
+ * any future `-32xxx` — arrived indistinguishable from a generic failure,
+ * leaving consumers to either match on message text or give up. `nimbus search`
+ * ended up issuing a second `gateway.ping` purely to recover state the first
+ * response had already carried and thrown away.
+ *
+ * `message` is byte-identical to what the transport threw before, so callers
+ * that only read (or match on) `.message` are unaffected.
+ */
+export class JsonRpcError extends Error {
+  /** @see JSON_RPC_ERROR_BRAND */
+  readonly nimbusErrorBrand: string = JSON_RPC_ERROR_BRAND;
+
+  /** JSON-RPC `error.code`; `null` when the peer omitted it or sent a non-number. */
+  readonly code: number | null;
+
+  /** JSON-RPC `error.data`, verbatim. `undefined` when absent. */
+  readonly data: unknown;
+
+  constructor(message: string, code: number | null, data: unknown) {
+    super(message);
+    this.name = "JsonRpcError";
+    this.code = code;
+    this.data = data;
+  }
+}
+
+/** True for a `JsonRpcError` from ANY copy of this package (brand check, not `instanceof`). */
+export function isJsonRpcError(err: unknown): err is JsonRpcError {
+  if (err instanceof JsonRpcError) {
+    return true;
+  }
+  if (typeof err !== "object" || err === null) {
+    return false;
+  }
+  return (err as { nimbusErrorBrand?: unknown }).nimbusErrorBrand === JSON_RPC_ERROR_BRAND;
+}
+
+/** Reads `error.code` off a raw JSON-RPC error object. `null` unless it is a number. */
+export function jsonRpcErrorCode(err: unknown): number | null {
+  if (typeof err !== "object" || err === null || !("code" in err)) {
+    return null;
+  }
+  const code = (err as { code: unknown }).code;
+  return typeof code === "number" ? code : null;
+}
+
+/** Reads `error.data` off a raw JSON-RPC error object. `undefined` when absent. */
+export function jsonRpcErrorData(err: unknown): unknown {
+  if (typeof err !== "object" || err === null || !("data" in err)) {
+    return undefined;
+  }
+  return (err as { data: unknown }).data;
+}
+
 export function tryParseJsonRecord(line: string): Record<string, unknown> | undefined {
   try {
     return JSON.parse(line) as Record<string, unknown>;
@@ -299,7 +369,10 @@ export class IPCClient {
     }
     this.pending.delete(idKey(id));
     if (Object.hasOwn(o, "error")) {
-      pend.reject(new Error(jsonRpcErrorMessage(o["error"])));
+      const raw = o["error"];
+      pend.reject(
+        new JsonRpcError(jsonRpcErrorMessage(raw), jsonRpcErrorCode(raw), jsonRpcErrorData(raw)),
+      );
       return;
     }
     pend.resolve(Object.hasOwn(o, "result") ? o["result"] : undefined);
