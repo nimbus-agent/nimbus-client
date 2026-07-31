@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.15.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.14.0...client-v0.15.0) (2026-07-31)
+
+
+### Features
+
+* **ipc:** notify consumers when the transport closes unexpectedly ([#48](https://github.com/nimbus-agent/nimbus-client/issues/48)) ([7adb9ab](https://github.com/nimbus-agent/nimbus-client/commit/7adb9aba7cb37053ef1b8e03f1452773a7e82d81))
+
 ## [0.14.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.13.0...client-v0.14.0) (2026-07-29)
 
 
