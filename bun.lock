@@ -33,7 +33,7 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.4", "", { "os": "win32", "cpu": "x64" }, "sha512-U1jaluLw1qQc2Tx7/CeSoL9N5XcqIH+GWjpUAy1ouB5nVjSCMNO+NNHdY3RAs8zxNurLWAdj6pehQdCA2zyU+Q=="],
 
-    "@nimbus-dev/sdk": ["@nimbus-dev/sdk@1.7.0", "", {}, "sha512-ApS6UElKIGABnqWZsBQvKptlERDI5B18NfQFFZSLk/prEDd8473pR6H/17SMi96fk7/1bp4HgYI5ioqVr6Y2dA=="],
+    "@nimbus-dev/sdk": ["@nimbus-dev/sdk@1.10.0", "", {}, "sha512-NIau3p9HWF6OcIRoyx4Rwzml+tPxSQITaxXH+QaNmk2H9nbMmey5Pb4lxD5eoDelATbOvpQpRceR+8HAlLXy2g=="],
 
     "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 
