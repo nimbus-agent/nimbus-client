@@ -130,6 +130,8 @@ export class IPCClient {
   private reader = new NdjsonLineReader();
   private readonly pending = new Map<string, Pending>();
   private readonly notifHandlers = new Map<string, Set<(params: unknown) => void>>();
+  private readonly closeHandlers = new Set<(err: Error) => void>();
+  private closeNotified = false;
   private bunSocket: Awaited<ReturnType<typeof Bun.connect>> | null = null;
   private netSocket: net.Socket | null = null;
   private connected = false;
@@ -145,6 +147,9 @@ export class IPCClient {
       return;
     }
     this.reader = new NdjsonLineReader();
+    // A fresh connection gets a fresh close notification; the once-guard below
+    // is per-connection, not per-instance.
+    this.closeNotified = false;
 
     if (platform() === "win32") {
       await this.connectWindows();
@@ -227,13 +232,48 @@ export class IPCClient {
   private onNetSocketClosed(): void {
     this.connected = false;
     this.netSocket = null;
-    this.failAll(new Error("IPC connection closed"));
+    const err = new Error("IPC connection closed");
+    this.failAll(err);
+    this.notifyClosed(err);
   }
 
   private onUnixClosed(err: Error): void {
     this.connected = false;
     this.bunSocket = null;
     this.failAll(err);
+    this.notifyClosed(err);
+  }
+
+  /**
+   * Fire the {@link onClose} handlers, at most once per connection.
+   *
+   * The once-guard is load-bearing on the Bun path: `Bun.connect`'s `error` and
+   * `close` callbacks BOTH route here, so a socket that errors and then closes
+   * would otherwise notify twice.
+   *
+   * Runs AFTER `failAll`, so a handler observes a settled client: every pending
+   * promise is rejected and the map is cleared. Their `.catch()` continuations
+   * are microtasks and generally run after this returns — internal state is
+   * settled, observable consumer callbacks are not yet.
+   *
+   * A throwing handler is swallowed: these run from a socket event, where an
+   * escaping throw becomes an unhandled exception rather than reaching any
+   * caller, and one bad handler must not suppress its siblings. Iterating a
+   * copy keeps a handler that calls `offClose` on itself from mutating the set
+   * mid-loop.
+   */
+  private notifyClosed(err: Error): void {
+    if (this.closeNotified) {
+      return;
+    }
+    this.closeNotified = true;
+    for (const handler of [...this.closeHandlers]) {
+      try {
+        handler(err);
+      } catch {
+        /* a handler's failure is its own problem, not the transport's */
+      }
+    }
   }
 
   async call<T>(method: string, params?: unknown): Promise<T> {
@@ -300,8 +340,48 @@ export class IPCClient {
     if (set.size === 0) this.notifHandlers.delete(method);
   }
 
+  /**
+   * Register a handler for an UNEXPECTED transport close.
+   *
+   * `call()` bounds itself with `requestTimeoutMs`, so a silent gateway cannot
+   * hang a request. A caller awaiting a NOTIFICATION has no such bound: for a
+   * long-running job the request that starts the work resolves immediately with
+   * a job id, and the result arrives later as a notification. If the gateway
+   * dies in between, nothing further ever arrives and the wait hangs forever —
+   * there is no pending `call()` left for `failAll` to reject. `onClose` is the
+   * escape hatch for exactly that shape.
+   *
+   * Deliberately does NOT fire on {@link disconnect} — a consumer that closed
+   * the connection itself already knows. Firing there would invoke close
+   * handlers on every ordinary teardown, including the successful path where
+   * the consumer's promise has already settled.
+   *
+   * Fires at most once per connection, after `failAll` has rejected every
+   * pending call. Note that "rejected" means the promises are settled and the
+   * pending map is cleared — a consumer's own `.catch()` continuation is a
+   * microtask and will typically run AFTER the close handler, so do not rely on
+   * seeing call rejections first from outside.
+   *
+   * Pair with {@link offClose} on teardown, per this repo's removable-handler
+   * rule — a leaked handler keeps a dead consumer reachable.
+   */
+  onClose(handler: (err: Error) => void): void {
+    this.closeHandlers.add(handler);
+  }
+
+  /** Remove a handler previously registered with {@link onClose}. */
+  offClose(handler: (err: Error) => void): void {
+    this.closeHandlers.delete(handler);
+  }
+
   async disconnect(): Promise<void> {
     this.connected = false;
+    // Consume the close notification BEFORE tearing the socket down. The
+    // teardown below raises the transport's own close event, which routes into
+    // `notifyClosed` exactly as an unexpected death would — so without this the
+    // "does not fire on disconnect" rule would be silently false, and every
+    // ordinary teardown would invoke close handlers.
+    this.closeNotified = true;
     this.failAll(new Error("IPC disconnected"));
     this.endWindowsTransport();
     this.endUnixTransport();
