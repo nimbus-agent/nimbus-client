@@ -52,6 +52,24 @@ bun run build       # tsc → dist/ (JS + .d.ts + declaration maps) + bundled CJ
   `bun run verify:sdk` (packs a sibling `../nimbus-sdk` and tests against it).
   A subsequent `bun install` restores the published sdk.
 
+## Questions
+
+Most questions about this package turn out to be boundary questions: the method
+you want isn't on `NimbusClientLike` — is that a missing wrapper here, a gateway
+method that was never exposed, or a type that belongs in the sdk? From outside
+the three repos above that is genuinely hard to call, and guessing wrong costs a
+PR. Ask on
+[Nimbus Discussions](https://github.com/nimbus-agent/Nimbus/discussions); the
+gateway repo keeps that board on behalf of every repo in the list above, so a
+question that spans two of them has somewhere to go. "Would you accept a PR that
+does X?" belongs there too, before you write it.
+
+When the answer is clearly *here* — a wrong type, a transport bug, a guard in
+`src/validate.ts` that rejects a valid response, a `MockClient` that has drifted
+from `NimbusClient` — open an issue in this repo instead and skip the board
+entirely. Vulnerabilities go through [`SECURITY.md`](./SECURITY.md), never a
+public thread on either.
+
 ## Pull requests
 
 - Keep PRs focused; include tests for behavior changes.

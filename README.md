@@ -109,6 +109,7 @@ attestation (see [`SECURITY.md`](./SECURITY.md)).
 ## See also
 
 - [Nimbus Developer Guide](https://nimbus-agent.dev/)
+- [Nimbus Discussions](https://github.com/nimbus-agent/Nimbus/discussions) — the shared board; ask there when you can't tell whether something is the client's job, the gateway's or the sdk's. Already sure it's this package? [Open an issue](https://github.com/nimbus-agent/nimbus-client/issues).
 
 ## License
 
