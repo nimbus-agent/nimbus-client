@@ -408,6 +408,10 @@ describe("IPCClient dispatch internals (no socket)", () => {
     netSocket: { write: (s: string) => void; end: () => void } | null;
     bunSocket: { write: (s: string) => void; end: () => void } | null;
     pending: Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>;
+    // The production key type is `string`. It is widened to `unknown` in this
+    // test-only view so a test can plant a non-string key and prove that a
+    // malformed `method` never reaches a handler.
+    notifHandlers: Map<unknown, Set<(p: unknown) => void>>;
   };
 
   function internal(c: IPCClient): InternalClient {
@@ -590,15 +594,37 @@ describe("IPCClient dispatch internals (no socket)", () => {
   test("dispatchNotificationLine drops message with non-string method", () => {
     const c = new IPCClient(INTERNAL_FAKE_PATH);
     const ic = internal(c);
-    // Should not throw — method is a number, not a string
-    ic.dispatchNotificationLine({ jsonrpc: "2.0", method: 123, params: {} });
+    const seen: unknown[] = [];
+    // Two traps for the two ways the non-string guard can rot. The first fires
+    // if `method` is ever coerced (String(123) === "123"); the second fires if
+    // the guard is dropped and the raw number is used as the lookup key.
+    c.onNotification("123", (p) => seen.push(p));
+    ic.notifHandlers.set(123, new Set([(p: unknown) => seen.push(p)]));
+
+    // Must be inert, not a throw: a malformed frame arrives from the socket.
+    expect(() =>
+      ic.dispatchNotificationLine({ jsonrpc: "2.0", method: 123, params: { x: 1 } }),
+    ).not.toThrow();
+    expect(seen).toEqual([]);
   });
 
   test("dispatchNotificationLine drops message with no registered handlers", () => {
     const c = new IPCClient(INTERNAL_FAKE_PATH);
     const ic = internal(c);
-    // method string but no handler registered — should not throw
-    ic.dispatchNotificationLine({ jsonrpc: "2.0", method: "unregistered", params: {} });
+    const seen: unknown[] = [];
+    c.onNotification("other.event", (p) => seen.push(p));
+
+    // A lookup miss must be a silent no-op: without the `undefined` guard the
+    // iteration below throws, and the throw escapes into the socket's data
+    // callback rather than reaching any caller.
+    expect(() =>
+      ic.dispatchNotificationLine({ jsonrpc: "2.0", method: "unregistered", params: {} }),
+    ).not.toThrow();
+    // No cross-talk into an unrelated method's handlers...
+    expect(seen).toEqual([]);
+    // ...and the miss must not materialise an empty handler set (a
+    // get-or-create regression leaks one entry per unknown method seen).
+    expect(ic.notifHandlers.has("unregistered")).toBe(false);
   });
 
   test("dispatchNotificationLine delivers params=undefined when params key absent", () => {
