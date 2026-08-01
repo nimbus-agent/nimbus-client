@@ -588,6 +588,12 @@ describe("validate — rejections throw IpcResponseError", () => {
     ).toThrow(/"commit" must be a string or null/);
   });
 
+  test("validateDiagVersion rejects a non-string/non-null buildId", () => {
+    expect(() =>
+      validateDiagVersion("m", { version: "v", commit: null, buildId: 7, uptimeMs: 1 }),
+    ).toThrow(/"buildId" must be a string or null/);
+  });
+
   test("validateIndexMetrics rejects a non-numeric itemCountByService value", () => {
     expect(() =>
       validateIndexMetrics("m", { ...INDEX_METRICS, itemCountByService: { github: "many" } }),
@@ -613,6 +619,39 @@ describe("validate — rejections throw IpcResponseError", () => {
         },
       }),
     ).toThrow(/"network" must be/);
+  });
+
+  test("validateDiagSnapshot rejects a non-string/non-null watcher timestamp", () => {
+    expect(() =>
+      validateDiagSnapshot("m", {
+        ...DIAG_SNAPSHOT_WIRE,
+        watchers: [{ ...DIAG_SNAPSHOT_WIRE.watchers[0], lastFiredAtMs: "never" }],
+      }),
+    ).toThrow(/"lastFiredAtMs" must be a number or null/);
+  });
+
+  test("validateDiagSnapshot rejects a non-string/non-null platform reason", () => {
+    expect(() =>
+      validateDiagSnapshot("m", {
+        ...DIAG_SNAPSHOT_WIRE,
+        sandbox: {
+          ...DIAG_SNAPSHOT_WIRE.sandbox,
+          platform_capabilities: { network: "per_host", reason: 7 },
+        },
+      }),
+    ).toThrow(/platform_capabilities "reason" must be a string or null/);
+  });
+
+  test("validateDiagSnapshot rejects a non-string/non-null Linux helper reason", () => {
+    expect(() =>
+      validateDiagSnapshot("m", {
+        ...DIAG_SNAPSHOT_WIRE,
+        sandbox: {
+          ...DIAG_SNAPSHOT_WIRE.sandbox,
+          linux_helper: { available: true, reason: 7 },
+        },
+      }),
+    ).toThrow(/linux_helper "reason" must be a string or null/);
   });
 
   test("validateGatewayStatus rejects an invalid policy source", () => {
@@ -752,6 +791,32 @@ describe("validate — rejections throw IpcResponseError", () => {
     ).toThrow(/"conclusion" must be "failure", "cancelled", or "timed_out"/);
   });
 
+  test("validateDeployPreflight rejects a non-string/non-null finding head_sha", () => {
+    expect(() =>
+      validateDeployPreflight("deploy.preflight", {
+        ...PREFLIGHT_WIRE,
+        checks: {
+          ...PREFLIGHT_WIRE.checks,
+          failing_ci_runs: {
+            count: 1,
+            findings: [
+              {
+                id: "r1",
+                title: "t",
+                conclusion: "failure",
+                modified_at_ms: 1,
+                branch: "main",
+                head_sha: 7,
+                url: null,
+              },
+            ],
+            gap: null,
+          },
+        },
+      }),
+    ).toThrow(/ci finding "head_sha" must be a string or null/);
+  });
+
   test("validateDeployPreflight rejects a non-string/non-null finding url", () => {
     expect(() =>
       validateDeployPreflight("deploy.preflight", {
@@ -826,6 +891,12 @@ describe("validateConnectorSyncStatusList / validateConnectorStatusResult", () =
     expect(() =>
       validateConnectorSyncStatusList("m", [{ ...SYNC_STATUS_WIRE, depth: "bogus" }]),
     ).toThrow(/"depth" must be/);
+  });
+
+  test("rejects a non-number/non-null lastSyncAt", () => {
+    expect(() =>
+      validateConnectorSyncStatusList("m", [{ ...SYNC_STATUS_WIRE, lastSyncAt: "soon" }]),
+    ).toThrow(/"lastSyncAt" must be a number or null/);
   });
 
   test("connectorStatus result omits telemetry when absent and includes it when present", () => {
@@ -968,6 +1039,12 @@ describe("validateConnectorAddMcp / validateConnectorRemove — HITL dual-shape"
     expect(() => validateConnectorAddMcp("m", { ok: false, serviceId: "mcp_x" })).toThrow(
       /"ok" must be true/,
     );
+  });
+
+  test("remove rejects ok: false (not a recognised denial, not a valid success)", () => {
+    expect(() =>
+      validateConnectorRemove("m", { ok: false, itemsDeleted: 0, vaultKeysRemoved: [] }),
+    ).toThrow(/"ok" must be true/);
   });
 
   test("remove accepts the approved shape with vaultKeysRemoved", () => {
