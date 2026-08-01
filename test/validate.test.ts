@@ -621,7 +621,7 @@ describe("validate — rejections throw IpcResponseError", () => {
     ).toThrow(/"network" must be/);
   });
 
-  test("validateDiagSnapshot rejects a non-string/non-null watcher timestamp", () => {
+  test("validateDiagSnapshot rejects a non-number/non-null lastFiredAtMs", () => {
     expect(() =>
       validateDiagSnapshot("m", {
         ...DIAG_SNAPSHOT_WIRE,
