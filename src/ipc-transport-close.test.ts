@@ -161,6 +161,38 @@ describe("IPCClient.onClose", () => {
     await client.disconnect();
   });
 
+  it("still invokes a handler a sibling removed DURING notification", async () => {
+    const endpoint = tempEndpoint();
+    const { socket } = await serveAndCapture(endpoint);
+    const client = new IPCClient(endpoint);
+    await client.connect();
+
+    const fired: string[] = [];
+    const b = (): void => {
+      fired.push("b");
+    };
+    // `a` is registered FIRST so its offClose(b) lands on an entry the loop has
+    // not reached yet — a Set entry deleted before it is visited is skipped by
+    // a live iteration, which is precisely the case the snapshot copy in
+    // `notifyClosed` exists to defend. This is the shape a real consumer hits
+    // when one close handler tears down a subsystem that unregistered another.
+    const a = (): void => {
+      fired.push("a");
+      client.offClose(b);
+    };
+    client.onClose(a);
+    client.onClose(b);
+
+    (await socket).destroy();
+    await Bun.sleep(100);
+
+    // Iterating `this.closeHandlers` directly instead of `new Set(...)` drops
+    // "b" here: every handler registered for THIS close must still be told the
+    // transport died, or it waits on a notification that can never arrive.
+    expect(fired).toEqual(["a", "b"]);
+    await client.disconnect();
+  });
+
   it("rejects a pending call AND notifies close, in that order", async () => {
     const endpoint = tempEndpoint();
     const { socket } = await serveAndCapture(endpoint);

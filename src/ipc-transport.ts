@@ -259,7 +259,8 @@ export class IPCClient {
    * A throwing handler is swallowed: these run from a socket event, where an
    * escaping throw becomes an unhandled exception rather than reaching any
    * caller, and one bad handler must not suppress its siblings. Iterating a
-   * copy keeps a handler that calls `offClose` on itself from mutating the set
+   * snapshot copy (insertion order preserved) keeps a handler that calls
+   * `offClose` on itself — or on a sibling — from mutating the live set
    * mid-loop.
    */
   private notifyClosed(err: Error): void {
@@ -267,7 +268,7 @@ export class IPCClient {
       return;
     }
     this.closeNotified = true;
-    for (const handler of [...this.closeHandlers]) {
+    for (const handler of new Set(this.closeHandlers)) {
       try {
         handler(err);
       } catch {

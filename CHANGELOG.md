@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.15.1](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.15.0...client-v0.15.1) (2026-08-01)
+
+
+### Bug Fixes
+
+* **ipc:** clear 3 SonarCloud findings and pin the close-handler snapshot ([#50](https://github.com/nimbus-agent/nimbus-client/issues/50)) ([5d6cad6](https://github.com/nimbus-agent/nimbus-client/commit/5d6cad65b5df5e61bad61fa68bf9cb56b0f24f08))
+
 ## [0.15.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.14.0...client-v0.15.0) (2026-07-31)
 
 
