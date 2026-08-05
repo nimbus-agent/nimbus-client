@@ -21,9 +21,10 @@ reviews:
         client for the Nimbus gateway. Flag: any `any` (prefer `unknown` + a type
         guard); any `console.*` in non-test src (it's a published library); any
         NEW runtime dependency added to package.json (the only permitted runtime
-        dep is `@nimbus-dev/sdk`, consumed as the published `^1.3.0` — inline
-        helpers otherwise, never `workspace:*`); and any change to an exported
-        type that isn't reflected as a semver-relevant change (Conventional
-        Commits drive release-please).
+        dep is `@nimbus-dev/sdk`, consumed as the published `^1.6.0` — the floor
+        is asserted in `scripts/check-package-identity.test.ts`; inline helpers
+        otherwise, never `workspace:*`); and any change to an exported type that
+        isn't reflected as a semver-relevant change (Conventional Commits drive
+        release-please).
 chat:
   auto_reply: true
