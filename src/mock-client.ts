@@ -86,6 +86,7 @@ import type {
   WorkflowRunResult,
   WorkflowSaveParams,
 } from "./nimbus-client.js";
+import { NO_EGRESS_COVERAGE } from "./nimbus-client.js";
 import type {
   AskStreamHandle,
   AskStreamOptions,
@@ -334,7 +335,15 @@ export class MockClient implements NimbusClientLike {
     return (
       this.fixtures.egressProveWindow ?? {
         rows: [],
-        completeness: { tier: "authorized-actions", outboundEgressEvents: 0 },
+        // All-`"none"` + `indeterminate: true` is the honest default for a
+        // fixture-less mock: it has observed nothing, so it claims nothing.
+        // Defaulting to "fully covered, zero events" would let a consumer's
+        // test pass against a claim no real gateway ever made.
+        completeness: {
+          coverage: NO_EGRESS_COVERAGE,
+          outboundEgressEvents: 0,
+          indeterminate: true,
+        },
         verify: { ok: true, verifiedRows: 0 },
       }
     );

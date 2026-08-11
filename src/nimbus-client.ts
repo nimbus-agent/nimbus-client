@@ -273,10 +273,73 @@ export type EgressVerifyResult = {
   reason?: string;
 };
 
-/** Completeness tier attached to a prove-window result. */
+/**
+ * The egress-bearing source classes a gateway can observe.
+ *
+ * Mirrors `COVERAGE_CLASSES` in the gateway's `egress/egress-coverage.ts`. Kept
+ * in the same key-sorted order, because that order is the canonical string a
+ * gateway hashes into a boot marker's `source_id` — a client that reordered
+ * them would be describing a different vector than the one on the wire.
+ */
+export const EGRESS_COVERAGE_CLASSES = [
+  "http",
+  "mcp",
+  "model",
+  "peer",
+  "session",
+  "sync",
+  "task",
+] as const;
+export type EgressCoverageClass = (typeof EGRESS_COVERAGE_CLASSES)[number];
+
+/** How completely one class was observed. Ordered weakest-first. */
+export const EGRESS_GRANULARITIES = ["none", "per-run", "per-call"] as const;
+export type EgressGranularity = (typeof EGRESS_GRANULARITIES)[number];
+
+/** Per-class record of what the binaries writing into a window were built to observe. */
+export type EgressCoverageVector = Readonly<Record<EgressCoverageClass, EgressGranularity>>;
+
+/**
+ * The vector that claims nothing: every class `"none"`.
+ *
+ * Exported because it is the correct default in three separate places — the
+ * validator's fallback, the mock client's fixture-less response, and a
+ * consumer's own "gateway unreachable" state — and a hand-written literal in
+ * each is three chances to omit a class as the set grows.
+ */
+export const NO_EGRESS_COVERAGE: EgressCoverageVector = Object.freeze({
+  http: "none",
+  mcp: "none",
+  model: "none",
+  peer: "none",
+  session: "none",
+  sync: "none",
+  task: "none",
+});
+
+/**
+ * Completeness attached to a prove-window result.
+ *
+ * **Breaking change in 1.0.0:** the scalar `tier: "authorized-actions"` field is
+ * gone, replaced by the per-class `coverage` vector plus `indeterminate`.
+ *
+ * One string could not describe a binary observing several classes at different
+ * granularities, and it silently stopped being true as the gateway grew from one
+ * non-`none` class to four (`task`, then `mcp`, `http`, `sync`). The gateway had
+ * been emitting `coverage`/`indeterminate` alongside `tier` for several releases
+ * — but 0.15.x *rejected* any response lacking `tier`, and that rejection is what
+ * made removing it a major rather than a quiet cleanup.
+ */
 export type EgressCompleteness = {
-  tier: "authorized-actions";
+  /** What the binaries writing into this window were built to observe. */
+  coverage: EgressCoverageVector;
   outboundEgressEvents: number;
+  /**
+   * True when the count cannot be relied on: no boot marker covers the window,
+   * so there is no evidence any class was being observed. Never present a bare
+   * zero to a user in this state — report it as indeterminate.
+   */
+  indeterminate: boolean;
 };
 
 /** An optional signed receipt over a prove-window (Ed25519, share keypair). */
@@ -1454,7 +1517,7 @@ export class NimbusClient implements NimbusClientLike {
   }
 
   /**
-   * Prove what left the machine in a window: the rows, the completeness tier,
+   * Prove what left the machine in a window: the rows, the per-class coverage,
    * a whole-ledger verify, and — when `sign` is set — a signed receipt.
    */
   async egressProveWindow(params: EgressProveWindowParams = {}): Promise<EgressProveWindowResult> {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { MockClient } from "../src/mock-client.ts";
+import { NO_EGRESS_COVERAGE } from "../src/nimbus-client.ts";
 
 /**
  * Exercises every `MockClient` stub with **no fixtures configured**.
@@ -61,7 +62,10 @@ describe("MockClient defaults — read surfaces are empty, not absent", () => {
 
     const prove = await c.egressProveWindow();
     expect(prove.rows).toEqual([]);
-    expect(prove.completeness.tier).toBe("authorized-actions");
+    // A fixture-less mock has observed nothing and must claim nothing.
+    expect(prove.completeness.coverage).toEqual(NO_EGRESS_COVERAGE);
+    expect(prove.completeness.indeterminate).toBe(true);
+    expect(prove.completeness.outboundEgressEvents).toBe(0);
     expect(prove.verify.ok).toBe(true);
   });
 
