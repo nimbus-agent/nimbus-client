@@ -2,6 +2,17 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.16.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.15.1...client-v0.16.0) (2026-08-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* replace EgressCompleteness.tier with the per-class coverage vector ([#58](https://github.com/nimbus-agent/nimbus-client/issues/58))
+
+### Features
+
+* replace EgressCompleteness.tier with the per-class coverage vector ([#58](https://github.com/nimbus-agent/nimbus-client/issues/58)) ([43b52f2](https://github.com/nimbus-agent/nimbus-client/commit/43b52f26a11a9152d2445502e620d1928343ee29))
+
 ## [0.15.1](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.15.0...client-v0.15.1) (2026-08-01)
 
 
