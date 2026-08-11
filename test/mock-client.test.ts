@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { MockClient } from "../src/mock-client.ts";
+import { NO_EGRESS_COVERAGE } from "../src/nimbus-client.ts";
 
 describe("MockClient", () => {
   test("queryItems returns fixture items", async () => {
@@ -77,7 +78,7 @@ describe("MockClient", () => {
     expect(await c.egressVerify()).toEqual({ ok: true, verifiedRows: 0 });
     expect(await c.egressProveWindow({ since: 1, sign: true })).toEqual({
       rows: [],
-      completeness: { tier: "authorized-actions", outboundEgressEvents: 0 },
+      completeness: { coverage: NO_EGRESS_COVERAGE, outboundEgressEvents: 0, indeterminate: true },
       verify: { ok: true, verifiedRows: 0 },
     });
   });
@@ -102,7 +103,11 @@ describe("MockClient", () => {
       egressVerify: { ok: false, verifiedRows: 1, brokenAt: 2, reason: "mismatch" },
       egressProveWindow: {
         rows: [row],
-        completeness: { tier: "authorized-actions", outboundEgressEvents: 1 },
+        completeness: {
+          coverage: NO_EGRESS_COVERAGE,
+          outboundEgressEvents: 1,
+          indeterminate: false,
+        },
         verify: { ok: true, verifiedRows: 1 },
       },
     });

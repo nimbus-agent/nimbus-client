@@ -178,12 +178,77 @@ describe("validate — happy paths", () => {
   test("validateEgressProveWindow accepts rows/completeness/verify and optional receipt", () => {
     const out = validateEgressProveWindow("m", {
       rows: [ROW],
-      completeness: { tier: "authorized-actions", outboundEgressEvents: 0 },
+      completeness: {
+        coverage: { task: "per-call", mcp: "per-call", http: "per-call", sync: "per-run" },
+        outboundEgressEvents: 0,
+        indeterminate: false,
+      },
       verify: { ok: true, verifiedRows: 1 },
       receipt: { sigB64: "s", pubkeyB64: "p", digest: "d" },
     });
     expect(out.receipt).toEqual({ sigB64: "s", pubkeyB64: "p", digest: "d" });
     expect(out.completeness.outboundEgressEvents).toBe(0);
+    expect(out.completeness.indeterminate).toBe(false);
+    // Classes the gateway sent are preserved; the three it omitted fill in as
+    // "none" rather than going missing from the record.
+    expect(out.completeness.coverage).toEqual({
+      http: "per-call",
+      mcp: "per-call",
+      model: "none",
+      peer: "none",
+      session: "none",
+      sync: "per-run",
+      task: "per-call",
+    });
+  });
+
+  test("completeness defaults DOWN when coverage is absent or malformed", () => {
+    const allNone = {
+      http: "none",
+      mcp: "none",
+      model: "none",
+      peer: "none",
+      session: "none",
+      sync: "none",
+      task: "none",
+    } as const;
+    // Absent entirely — an older gateway. Claim nothing rather than throw: the
+    // 0.15.x habit of throwing on an unexpected shape is the whole reason this
+    // field needed a major in the first place.
+    const absent = validateEgressProveWindow("m", {
+      rows: [],
+      completeness: { outboundEgressEvents: 0 },
+      verify: { ok: true, verifiedRows: 0 },
+    });
+    expect(absent.completeness.coverage).toEqual(allNone);
+    // Missing `indeterminate` reads as TRUE — "we cannot vouch for this" must
+    // never degrade into "nothing left the machine".
+    expect(absent.completeness.indeterminate).toBe(true);
+
+    const malformed = validateEgressProveWindow("m", {
+      rows: [],
+      completeness: { coverage: "everything", outboundEgressEvents: 0, indeterminate: false },
+      verify: { ok: true, verifiedRows: 0 },
+    });
+    expect(malformed.completeness.coverage).toEqual(allNone);
+  });
+
+  test("an unrecognised granularity reads as none, and an unknown class is ignored", () => {
+    const out = validateEgressProveWindow("m", {
+      rows: [],
+      completeness: {
+        // `per-item` is not a granularity this client knows; understating it as
+        // "none" is the safe direction. `telepathy` is a class from some future
+        // gateway and must not break the classes this client does understand.
+        coverage: { task: "per-call", sync: "per-item", telepathy: "per-call" },
+        outboundEgressEvents: 2,
+        indeterminate: false,
+      },
+      verify: { ok: true, verifiedRows: 0 },
+    });
+    expect(out.completeness.coverage.task).toBe("per-call");
+    expect(out.completeness.coverage.sync).toBe("none");
+    expect(out.completeness.coverage).not.toHaveProperty("telepathy");
   });
 
   test("egress row accepts null sourceId", () => {
@@ -475,14 +540,28 @@ describe("validate — rejections throw IpcResponseError", () => {
     ).toThrow(/"role" must be/);
   });
 
-  test("prove-window with wrong completeness tier", () => {
+  test("prove-window still rejects a missing outboundEgressEvents", () => {
+    // The one field in `completeness` that is still hard-required. It is a count,
+    // not a claim about coverage — absent, there is nothing to default DOWN to,
+    // and inventing a 0 would fabricate the exact "nothing left the machine"
+    // answer the whole type exists to avoid asserting without evidence.
     expect(() =>
       validateEgressProveWindow("m", {
         rows: [],
-        completeness: { tier: "everything", outboundEgressEvents: 0 },
+        completeness: { coverage: { task: "per-call" }, indeterminate: false },
         verify: { ok: true, verifiedRows: 0 },
       }),
-    ).toThrow(/"tier" must be/);
+    ).toThrow(/outboundEgressEvents/);
+  });
+
+  test("prove-window rejects a non-object completeness", () => {
+    expect(() =>
+      validateEgressProveWindow("m", {
+        rows: [],
+        completeness: "authorized-actions",
+        verify: { ok: true, verifiedRows: 0 },
+      }),
+    ).toThrow();
   });
 
   test("egress row with a non-string/non-null sourceId", () => {

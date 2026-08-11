@@ -33,6 +33,9 @@ import type {
   DoraMetricsResult,
   DoraMetricValue,
   EgressCompleteness,
+  EgressCoverageClass,
+  EgressCoverageVector,
+  EgressGranularity,
   EgressHead,
   EgressListResult,
   EgressProveWindowResult,
@@ -69,6 +72,7 @@ import type {
   WorkflowRunResult,
   WorkflowStepResult,
 } from "./nimbus-client.js";
+import { EGRESS_COVERAGE_CLASSES, EGRESS_GRANULARITIES } from "./nimbus-client.js";
 
 /** Thrown when a Gateway response does not match its expected shape. */
 export class IpcResponseError extends Error {
@@ -418,13 +422,50 @@ export function validateEgressVerify(method: string, v: unknown): EgressVerifyRe
   return result;
 }
 
+/**
+ * Read the per-class coverage vector, defaulting DOWN rather than throwing.
+ *
+ * The rules here are deliberately asymmetric, and the asymmetry is the point:
+ *
+ * - An **absent or malformed** `coverage` yields all-`"none"` — "claim nothing".
+ *   Throwing instead is what 0.15.x did with `tier`, and it is precisely how a
+ *   strict client turns a gateway's additive change into a hard failure for
+ *   every consumer. A client that cannot understand the claim must report no
+ *   claim, not refuse to answer.
+ * - A **known class with an unrecognised granularity** also reads as `"none"`.
+ *   A newer gateway might report a granularity this client predates; treating
+ *   it as the weakest value understates coverage, which is the safe direction.
+ * - An **unknown class** is ignored. A future gateway may observe classes this
+ *   client has never heard of; that must not break the ones it does know.
+ *
+ * Every rule fails toward under-claiming. Over-claiming coverage that was not
+ * actually observed is the one outcome this type exists to prevent.
+ */
+function readCoverageVector(v: unknown): EgressCoverageVector {
+  const src = v !== null && typeof v === "object" ? (v as Record<string, unknown>) : {};
+  const out = {} as Record<EgressCoverageClass, EgressGranularity>;
+  for (const cls of EGRESS_COVERAGE_CLASSES) {
+    const raw = src[cls];
+    out[cls] = EGRESS_GRANULARITIES.includes(raw as EgressGranularity)
+      ? (raw as EgressGranularity)
+      : "none";
+  }
+  return out;
+}
+
 function validateEgressCompleteness(method: string, v: unknown): EgressCompleteness {
   const o = record(method, v);
-  const tier = str(method, o, "tier");
-  if (tier !== "authorized-actions") {
-    throw new IpcResponseError(method, `completeness "tier" must be "authorized-actions"`);
-  }
-  return { tier, outboundEgressEvents: num(method, o, "outboundEgressEvents") };
+  const coverage = readCoverageVector(o["coverage"]);
+  // `indeterminate` defaults to TRUE when absent or non-boolean — the fail-closed
+  // reading. A gateway too old to send it is exactly a gateway whose coverage this
+  // client cannot vouch for, and "we do not know" must never degrade into "nothing
+  // left the machine".
+  const indeterminate = typeof o["indeterminate"] === "boolean" ? o["indeterminate"] : true;
+  return {
+    coverage,
+    outboundEgressEvents: num(method, o, "outboundEgressEvents"),
+    indeterminate,
+  };
 }
 
 function validateEgressReceipt(method: string, v: unknown): EgressReceipt {

@@ -109,7 +109,7 @@ describe("NimbusClient method dispatch", () => {
       { ok: true, verifiedRows: 3 },
       {
         rows: [],
-        completeness: { tier: "authorized-actions", outboundEgressEvents: 0 },
+        completeness: { coverage: {}, outboundEgressEvents: 0, indeterminate: true },
         verify: { ok: true, verifiedRows: 3 },
       },
     ]);
@@ -138,7 +138,7 @@ describe("NimbusClient method dispatch", () => {
     const ipc = new FakeIpc([
       {
         rows: [],
-        completeness: { tier: "authorized-actions", outboundEgressEvents: 0 },
+        completeness: { coverage: {}, outboundEgressEvents: 0, indeterminate: true },
         verify: { ok: true, verifiedRows: 0 },
       },
     ]);
