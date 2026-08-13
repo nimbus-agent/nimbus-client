@@ -181,10 +181,19 @@ describe("MockClient defaults — workflow.*", () => {
   test("run echoes dryRun so a dry-run rehearsal is distinguishable", async () => {
     expect(await c.workflowRun({ name: "w" })).toEqual({
       runId: "mock-run",
+      status: "done",
       dryRun: false,
       stepResults: [],
     });
     expect((await c.workflowRun({ name: "w", dryRun: true })).dryRun).toBe(true);
+  });
+
+  test("a dry run reports the preview status, matching the Gateway", async () => {
+    expect((await c.workflowRun({ name: "w", dryRun: true })).status).toBe("preview");
+  });
+
+  test("cancel reports a cancelled run by default", async () => {
+    expect(await c.workflowCancel({ streamId: "s" })).toEqual({ cancelled: true });
   });
 });
 

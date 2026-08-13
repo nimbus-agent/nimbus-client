@@ -1178,11 +1178,30 @@ function validateWorkflowStepResult(method: string, v: unknown): WorkflowStepRes
 /** Result of `workflow.run`. */
 export function validateWorkflowRun(method: string, v: unknown): WorkflowRunResult {
   const o = record(method, v);
-  return {
+  const result: WorkflowRunResult = {
     runId: str(method, o, "runId"),
     dryRun: bool(method, o, "dryRun"),
     stepResults: arr(method, o["stepResults"]).map((s) => validateWorkflowStepResult(method, s)),
   };
+  // Optional on the wire — not because it is unimportant (it is the only way to
+  // tell a cancelled run from a short completed one) but because Gateways
+  // predating `workflow.cancel` omit it. Requiring it would fail every run
+  // against a Gateway the caller has not upgraded yet. A present-but-wrongly-
+  // typed value is still an error.
+  const status = o["status"];
+  if (status !== undefined) {
+    if (typeof status !== "string") {
+      throw new IpcResponseError(method, `"status" must be a string when present`);
+    }
+    result.status = status;
+  }
+  return result;
+}
+
+/** `{ cancelled: boolean }` — result of `workflow.cancel`. */
+export function validateWorkflowCancel(method: string, v: unknown): { cancelled: boolean } {
+  const o = record(method, v);
+  return { cancelled: bool(method, o, "cancelled") };
 }
 
 /** Result of `agents.whyPeek` — a synchronous one-line "why" answer, not a brief. */

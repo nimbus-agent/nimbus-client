@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { IPCClient } from "./ipc-transport.js";
 import type { WorkflowRunResult } from "./nimbus-client.js";
 import type {
@@ -15,21 +17,18 @@ type Pending = {
  * Stream a workflow run's per-step output.
  *
  * Shape note — this is NOT `askStream`. `engine.askStream` returns a `streamId`
- * immediately and every notification carries it, so several streams can share one
- * connection. `workflow.run` is a single RPC that resolves with the final
- * `WorkflowRunResult`, and its chunks arrive on the untagged `agent.chunk`
- * (`{ text }`) — the very same method `engine.askStream` and `agent.invoke` use,
- * with nothing to attribute a chunk to a particular run.
+ * immediately and every notification carries it. `workflow.run` is a single RPC
+ * that resolves only with the final `WorkflowRunResult`, so a gateway-minted id
+ * could never arrive in time. The CLIENT therefore mints the id here, sends it
+ * with the run, and filters `agent.chunk` by it — which is also what makes the
+ * run cancellable.
  *
- * The consequence is load-bearing and cannot be fixed from this side: while this
- * handle is live it receives EVERY `agent.chunk` on the connection. Run one
- * streaming workflow at a time per connection, and do not interleave it with a
- * streaming `ask` — use a second client if you need both at once. Adding a stream
- * id to the gateway's workflow chunks is what would lift this.
- *
- * There is also no cancel: the gateway exposes no `workflow.cancel`. Breaking out
- * of the `for await` detaches the listener, but the run continues server-side and
- * `result` still settles.
+ * Chunks with no `streamId` are accepted rather than dropped. A gateway that
+ * predates chunk tagging emits bare `{ text }`, and filtering those out would
+ * silently produce an empty stream; against such a gateway the old caveat still
+ * holds — one streaming workflow at a time per connection, not interleaved with
+ * a streaming `ask` — because its chunks genuinely cannot be told apart. Chunks
+ * tagged for a DIFFERENT run are always ignored.
  */
 export function createWorkflowRunStream(
   ipc: IPCClient,
@@ -40,6 +39,9 @@ export function createWorkflowRunStream(
   const waiters: Pending[] = [];
   let done = false;
   let detach: (() => void) | undefined;
+  // Minted, not received: workflow.run resolves too late for a gateway id to be
+  // useful. Unique per run — the gateway rejects reuse of a live id with -32602.
+  const streamId = params.streamId ?? randomUUID();
 
   const push = (ev: WorkflowRunEvent): void => {
     if (done) return;
@@ -65,6 +67,10 @@ export function createWorkflowRunStream(
 
   const onChunk = (p: unknown): void => {
     if (typeof p !== "object" || p === null) return;
+    const tag = (p as { streamId?: unknown }).streamId;
+    // An absent tag means an older gateway that cannot tag at all — take it.
+    // A tag that is not ours belongs to another run or a concurrent ask.
+    if (typeof tag === "string" && tag !== streamId) return;
     const text = (p as { text?: unknown }).text;
     if (typeof text === "string") push({ type: "chunk", text });
   };
@@ -86,6 +92,7 @@ export function createWorkflowRunStream(
         sessionId: params.sessionId,
         agent: params.agent,
         paramsOverride: params.paramsOverride,
+        streamId,
       });
       return validate("workflow.run", raw);
     } finally {
@@ -109,6 +116,22 @@ export function createWorkflowRunStream(
 
   return {
     result,
+    streamId,
+    async cancel(): Promise<{ cancelled: boolean }> {
+      // Deliberately does NOT finish() the stream. Cancellation lands at the
+      // next step boundary, so the run keeps emitting and then settles with
+      // status "cancelled" — closing here would drop that terminal result,
+      // which is the only confirmation the cancel took effect.
+      try {
+        const raw = await ipc.call("workflow.cancel", { streamId });
+        const flag = (raw as { cancelled?: unknown } | null)?.cancelled;
+        return { cancelled: flag === true };
+      } catch {
+        // A gateway with no workflow.cancel rejects the method. Nothing was
+        // cancelled, and the run carries on — report that rather than throw.
+        return { cancelled: false };
+      }
+    },
     [Symbol.asyncIterator](): AsyncIterator<WorkflowRunEvent> {
       return {
         next(): Promise<IteratorResult<WorkflowRunEvent>> {

@@ -76,6 +76,7 @@ import {
   validateSessionRecall,
   validateSessionTranscript,
   validateWhyPeek,
+  validateWorkflowCancel,
   validateWorkflowList,
   validateWorkflowListRuns,
   validateWorkflowRun,
@@ -1028,8 +1029,41 @@ export type WorkflowStepResult = {
  */
 export type WorkflowRunResult = {
   runId: string;
+  /**
+   * The run's terminal status — one of `"preview"` (dry run), `"done"`,
+   * `"error"` or `"cancelled"`. Typed as a plain `string` because the Gateway
+   * does not constrain it to a union; treat an unrecognised value as unknown
+   * rather than assuming one of the four.
+   *
+   * This is the ONLY way to tell a cancelled run from a short run that ran to
+   * completion — an IPC caller cannot read the Gateway's `workflow_run` table.
+   *
+   * OPTIONAL because Gateways predating `workflow.cancel` never send it.
+   * `undefined` therefore means "this Gateway does not report a terminal
+   * status", NOT "the run had none".
+   */
+  status?: string;
   dryRun: boolean;
   stepResults: WorkflowStepResult[];
+};
+
+/** Parameters for {@link NimbusClient.workflowCancel}. */
+export type WorkflowCancelParams = {
+  /**
+   * The id passed as {@link WorkflowRunParams.streamId}, or a
+   * {@link WorkflowRunStreamHandle}'s `streamId`.
+   */
+  streamId: string;
+};
+
+/** Result of {@link NimbusClient.workflowCancel}. */
+export type WorkflowCancelResult = {
+  /**
+   * `false` means no live run *of this connection's client* held that id — an
+   * unknown id, a run that already finished, or another client's run. It does
+   * NOT distinguish those cases.
+   */
+  cancelled: boolean;
 };
 
 /**
@@ -1052,6 +1086,22 @@ export type WorkflowRunParams = {
   agent?: string;
   /** Per-step param overrides, keyed by step label. */
   paramsOverride?: Record<string, Record<string, unknown>>;
+  /**
+   * Correlation id, chosen by YOU rather than the Gateway — `workflow.run`
+   * resolves only when the run finishes, so a server-minted id could never
+   * arrive in time to be useful. Supplying one makes every `agent.chunk` for
+   * this run carry it, and makes the run cancellable via
+   * {@link NimbusClient.workflowCancel}.
+   *
+   * Scoped to this connection's client: two clients may use the same id
+   * without colliding, and one client can never cancel another's run. Reusing
+   * an id that is still live for YOUR client is rejected `-32602`, so mint a
+   * fresh one per run (a UUID — not a constant).
+   *
+   * Ignored by Gateways that predate the feature, which simply keep sending
+   * untagged chunks.
+   */
+  streamId?: string;
 };
 
 /**
@@ -1134,6 +1184,7 @@ export interface NimbusClientLike {
   workflowListRuns(params: WorkflowListRunsParams): Promise<WorkflowListRunsResult>;
   workflowRun(params: WorkflowRunParams): Promise<WorkflowRunResult>;
   workflowRunStream(params: WorkflowRunStreamParams): WorkflowRunStreamHandle;
+  workflowCancel(params: WorkflowCancelParams): Promise<WorkflowCancelResult>;
   close(): Promise<void>;
 }
 
@@ -1749,6 +1800,7 @@ export class NimbusClient implements NimbusClientLike {
       sessionId: params.sessionId,
       agent: params.agent,
       paramsOverride: params.paramsOverride,
+      streamId: params.streamId,
     });
     return validateWorkflowRun("workflow.run", raw);
   }
@@ -1760,13 +1812,32 @@ export class NimbusClient implements NimbusClientLike {
    * `done`/`error`, or just `await handle.result` for the same value
    * {@link NimbusClient.workflowRun} resolves.
    *
-   * ONE AT A TIME PER CONNECTION. The Gateway sends workflow chunks on the
-   * untagged `agent.chunk` — the same method `askStream` and `agent.invoke` use —
-   * so a live handle sees every chunk on the connection and cannot tell them
-   * apart. See {@link WorkflowRunStreamHandle}.
+   * The handle mints its own `streamId` and filters `agent.chunk` by it, so
+   * several runs — and a concurrent streaming `ask` — can share one connection.
+   * Against a Gateway that predates chunk tagging the chunks arrive untagged
+   * and the handle accepts them all, which restores the old one-at-a-time
+   * caveat for that Gateway only. See {@link WorkflowRunStreamHandle}.
    */
   workflowRunStream(params: WorkflowRunStreamParams): WorkflowRunStreamHandle {
     return createWorkflowRunStream(this.ipc, params, validateWorkflowRun);
+  }
+
+  /**
+   * Cancel a running workflow by the `streamId` it was started with.
+   *
+   * CANCELLATION TAKES EFFECT AT THE NEXT STEP BOUNDARY. The step already in
+   * flight runs to completion, so a workflow whose current step is a long model
+   * call will NOT stop early. The run then finalises with
+   * {@link WorkflowRunResult.status} `"cancelled"`.
+   *
+   * Ids are scoped to this connection's client: one client can never cancel
+   * another's run, and {@link NimbusClient.cancelStream} cannot reach a
+   * workflow at all. `{ cancelled: false }` means no live run of yours held
+   * that id.
+   */
+  async workflowCancel(params: WorkflowCancelParams): Promise<WorkflowCancelResult> {
+    const raw = await this.ipc.call("workflow.cancel", { streamId: params.streamId });
+    return validateWorkflowCancel("workflow.cancel", raw);
   }
 
   async close(): Promise<void> {
