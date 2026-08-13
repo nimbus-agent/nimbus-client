@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.17.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.16.0...client-v0.17.0) (2026-08-13)
+
+
+### Features
+
+* type workflow chunk tagging and add workflowCancel ([#60](https://github.com/nimbus-agent/nimbus-client/issues/60)) ([cdd92bc](https://github.com/nimbus-agent/nimbus-client/commit/cdd92bcdaa9129bf808e232ff78b378cd8095d98))
+
 ## [0.16.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.15.1...client-v0.16.0) (2026-08-11)
 
 
