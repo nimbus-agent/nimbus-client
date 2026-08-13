@@ -142,6 +142,8 @@ export {
   type SessionTranscript,
   type ToolCallLogEntry,
   type WatcherSummary,
+  type WorkflowCancelParams,
+  type WorkflowCancelResult,
   type WorkflowDeleteParams,
   type WorkflowListResult,
   type WorkflowListRunsParams,

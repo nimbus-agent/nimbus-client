@@ -59,10 +59,6 @@ export type WorkflowRunEvent =
 /**
  * Returned from NimbusClient.workflowRunStream().
  *
- * No `cancel()` — the gateway has no `workflow.cancel`, so offering one would be
- * a lie. Breaking out of the `for await` detaches the chunk listener; the run
- * continues server-side and `result` still settles.
- *
  * `result` rejects on a failed run exactly as `workflowRun()` does; the iterator
  * reports the same failure as a terminal `error` event instead. Consume one or the
  * other — awaiting `result` without a `catch` while only iterating will surface an
@@ -70,6 +66,29 @@ export type WorkflowRunEvent =
  */
 export type WorkflowRunStreamHandle = AsyncIterable<WorkflowRunEvent> & {
   readonly result: Promise<WorkflowRunResult>;
+  /**
+   * The correlation id this handle minted and sent with `workflow.run`. Known
+   * synchronously (unlike `AskStreamHandle.streamId`, which is empty until the
+   * gateway answers), because for workflows the CLIENT chooses the id.
+   */
+  readonly streamId: string;
+  /**
+   * Ask the gateway to cancel this run.
+   *
+   * TAKES EFFECT AT THE NEXT STEP BOUNDARY — the step in flight runs to
+   * completion, so a run whose current step is a long model call will not stop
+   * early. Do not present this as immediate cancellation.
+   *
+   * Deliberately does NOT close the stream: the run keeps emitting until it
+   * stops, then settles with `status: "cancelled"`. Closing here would discard
+   * that terminal result, which is the only confirmation the cancel worked.
+   * Break out of the `for await` as well if you want to stop listening.
+   *
+   * Resolves `{ cancelled: false }` when no live run held the id — including
+   * against a gateway with no `workflow.cancel` at all, where the run simply
+   * carries on.
+   */
+  cancel(): Promise<{ cancelled: boolean }>;
 };
 
 /**

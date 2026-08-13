@@ -78,6 +78,8 @@ import type {
   SessionRecallParams,
   SessionRecallResult,
   SessionTranscript,
+  WorkflowCancelParams,
+  WorkflowCancelResult,
   WorkflowDeleteParams,
   WorkflowListResult,
   WorkflowListRunsParams,
@@ -132,6 +134,8 @@ export type MockClientFixtures = {
   workflowRun?: WorkflowRunResult;
   /** Chunks replayed by {@link MockClient.workflowRunStream} before its `done` event. */
   workflowRunChunks?: string[];
+  /** Answer for {@link MockClient.workflowCancel} and a stream handle's `cancel()`. */
+  workflowCancel?: WorkflowCancelResult;
   agentBriefs?: Partial<{
     expert: ExpertBrief;
     impact: ImpactBrief;
@@ -562,22 +566,33 @@ export class MockClient implements NimbusClientLike {
     return (
       this.fixtures.workflowRun ?? {
         runId: "mock-run",
+        status: params.dryRun === true ? "preview" : "done",
         dryRun: params.dryRun ?? false,
         stepResults: [],
       }
     );
   }
 
+  async workflowCancel(_params: WorkflowCancelParams): Promise<WorkflowCancelResult> {
+    return this.fixtures.workflowCancel ?? { cancelled: true };
+  }
+
   workflowRunStream(params: WorkflowRunStreamParams): WorkflowRunStreamHandle {
     const chunks = this.fixtures.workflowRunChunks ?? ["mock ", "workflow"];
     const value = this.fixtures.workflowRun ?? {
       runId: "mock-run",
+      status: params.dryRun === true ? "preview" : "done",
       dryRun: params.dryRun ?? false,
       stepResults: [],
     };
+    const cancelResult = this.fixtures.workflowCancel ?? { cancelled: true };
     let i = 0;
     return {
       result: Promise.resolve(value),
+      streamId: params.streamId ?? "mock-stream",
+      async cancel(): Promise<WorkflowCancelResult> {
+        return cancelResult;
+      },
       [Symbol.asyncIterator](): AsyncIterator<WorkflowRunEvent> {
         return {
           async next(): Promise<IteratorResult<WorkflowRunEvent>> {
