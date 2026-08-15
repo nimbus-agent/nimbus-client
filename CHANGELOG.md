@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.17.1](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.17.0...client-v0.17.1) (2026-08-15)
+
+
+### Reverts
+
+* **ci:** drop environment: release from the npm publish job ([#64](https://github.com/nimbus-agent/nimbus-client/issues/64)) ([50631ad](https://github.com/nimbus-agent/nimbus-client/commit/50631ad200b5077cb7b16ac2533de013e2185ffe))
+
 ## [0.17.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.16.0...client-v0.17.0) (2026-08-13)
 
 
