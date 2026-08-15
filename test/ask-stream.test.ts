@@ -36,6 +36,23 @@ class FakeIpc {
   emit(method: string, params: unknown): void {
     for (const h of this.notifHandlers.get(method) ?? []) h(params);
   }
+
+  // Mirrors IPCClient's close surface. The real transport fires these on an
+  // UNEXPECTED close only — never on `disconnect` — at most once per connection.
+  public closeHandlers = new Set<(err: Error) => void>();
+
+  onClose(handler: (err: Error) => void): void {
+    this.closeHandlers.add(handler);
+  }
+
+  offClose(handler: (err: Error) => void): void {
+    this.closeHandlers.delete(handler);
+  }
+
+  /** Simulate the gateway dying mid-stream. */
+  emitClose(err = new Error("socket closed")): void {
+    for (const h of [...this.closeHandlers]) h(err);
+  }
 }
 
 let ipc: FakeIpc;
@@ -331,6 +348,8 @@ describe("askStream", () => {
       },
       onNotification(): void {},
       offNotification(): void {},
+      onClose(): void {},
+      offClose(): void {},
     };
     const handle = createAskStream(failingIpc as never, "hello");
     const events: StreamEvent[] = [];
@@ -365,6 +384,8 @@ describe("askStream", () => {
         arr.push(handler);
       },
       offNotification(): void {},
+      onClose(): void {},
+      offClose(): void {},
       emit(method: string, params: unknown): void {
         for (const h of slowIpc.notifHandlers.get(method) ?? []) h(params);
       },
@@ -468,6 +489,8 @@ describe("askStream", () => {
         arr.push(handler);
       },
       offNotification(): void {},
+      onClose(): void {},
+      offClose(): void {},
     };
 
     const handle = createAskStream(slowIpc as never, "hello");
@@ -508,6 +531,8 @@ describe("askStream", () => {
       },
       onNotification(): void {},
       offNotification(): void {},
+      onClose(): void {},
+      offClose(): void {},
     };
 
     const handle = createAskStream(slowIpc as never, "hello");
@@ -682,6 +707,8 @@ describe("askStream", () => {
         arr.push(handler);
       },
       offNotification(): void {},
+      onClose(): void {},
+      offClose(): void {},
     };
 
     const handle = createAskStream(slowIpc as never, "hello");
@@ -703,5 +730,70 @@ describe("askStream", () => {
       }
     }
     await Promise.resolve();
+  });
+});
+
+/**
+ * The transport documents `onClose` as the escape hatch for a consumer awaiting
+ * NOTIFICATIONS: `engine.askStream` resolves immediately with a streamId, so
+ * once it has settled there is no pending `call()` left for `failAll` to reject.
+ * `createAskStream` never bound it — a gateway dying mid-answer left the
+ * consumer's `for await` waiting forever.
+ *
+ * These tests would HANG (and time out) against the unfixed implementation,
+ * which is exactly the failure being fixed.
+ */
+describe("askStream — unexpected transport close", () => {
+  test("emits a transport_closed error and terminates instead of hanging", async () => {
+    const { events, drain } = await startAndDrain(ipc);
+    ipc.emit("engine.streamToken", { streamId: "stream-1", text: "partial" });
+
+    ipc.emitClose(new Error("socket closed"));
+
+    await drain; // hangs forever without the onClose binding
+    expect(events.map((e) => e.type)).toEqual(["token", "error"]);
+    expect(events[1]).toMatchObject({ type: "error", code: "transport_closed" });
+  });
+
+  test("terminates even when the close arrives before any token", async () => {
+    const { events, drain } = await startAndDrain(ipc);
+    ipc.emitClose(new Error("gateway died"));
+    await drain;
+    expect(events).toEqual([{ type: "error", code: "transport_closed", message: "gateway died" }]);
+  });
+
+  test("carries the close reason through, so the consumer can report why", async () => {
+    const { events, drain } = await startAndDrain(ipc);
+    ipc.emitClose(new Error("EPIPE"));
+    await drain;
+    expect((events[0] as { message: string }).message).toBe("EPIPE");
+  });
+
+  /**
+   * The removable-handler rule: `finish()` drains `unsubscribers`, which now
+   * includes `offClose`. A completed stream must not keep its closure — and the
+   * handle behind it — reachable from a live connection.
+   */
+  test("detaches its close handler once the stream finishes normally", async () => {
+    const { events, drain } = await startAndDrain(ipc);
+    ipc.emit("engine.streamDone", { streamId: "stream-1" });
+    await drain;
+    expect(ipc.closeHandlers.size).toBe(0);
+
+    // A later close must not append anything to an already-finished stream.
+    ipc.emitClose(new Error("late close"));
+    expect(events.map((e) => e.type)).toEqual(["done"]);
+  });
+
+  test("detaches its close handler after cancel() too", async () => {
+    const { handle, drain } = await startAndDrain(ipc);
+    await handle.cancel();
+    await drain;
+    expect(ipc.closeHandlers.size).toBe(0);
+  });
+
+  test("registers exactly one close handler per stream", async () => {
+    await startAndDrain(ipc);
+    expect(ipc.closeHandlers.size).toBe(1);
   });
 });
