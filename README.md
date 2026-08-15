@@ -55,14 +55,15 @@ covers these gateway namespaces:
 | Audit | `auditList`, `auditVerify`, `auditGetSummary`, `auditToolCalls` |
 | Egress | `egressHead`, `egressList`, `egressVerify`, `egressProveWindow` |
 | Connectors | `connectorListStatus`, `connectorStatus`, `connectorHealthHistory`, `connectorPause`, `connectorResume`, `connectorSetInterval`, `connectorSetConfig`, `connectorSync`, `connectorAuth`, `connectorAddMcp`, `connectorRemove`, `connectorReindex` |
-| Workflows | `workflowList`, `workflowSave`, `workflowDelete`, `workflowListRuns`, `workflowRun` |
+| Workflows | `workflowList`, `workflowSave`, `workflowDelete`, `workflowListRuns`, `workflowRun`, `workflowCancel` |
 | Metrics & deploy | `metricsDora`, `deployPreflight` |
 | Consent | `consentRespond` |
 | Diagnostics | `gatewayPing`, `diagGetVersion`, `diagSnapshot`, `indexMetrics`, `adminStatus` |
 
 Streaming and subscriptions: `askStream` (`AskStreamHandle`), `workflowRunStream`
 (`WorkflowRunStreamHandle`), `subscribeHitl` (`HitlRequest`),
-`subscribeConnectorConfigChanged` (`ConnectorConfigChanged`), and `cancelStream`.
+`subscribeConnectorConfigChanged` (`ConnectorConfigChanged`),
+`subscribeAgentBrief` (`AgentBriefEvent`), and `cancelStream`.
 
 ### Validated responses
 
@@ -92,8 +93,18 @@ const { head, count } = await client.egressHead();      // ledger head + row cou
 const { rows } = await client.egressList({ limit: 100 }); // recent rows
 const verify = await client.egressVerify();               // offline chain verify
 const proof = await client.egressProveWindow({ since: Date.now() - 3_600_000 });
-// Trust `completeness` only when the whole-ledger verify passed:
-// proof.verify.ok && proof.completeness.outboundEgressEvents === 0 → nothing left the machine
+
+// A zero is only a claim when BOTH hold: the whole-ledger verify passed, AND the
+// window is not indeterminate. `indeterminate` means no boot marker covers the
+// window — nothing is known to have been observing, so a bare zero says nothing.
+// `validate.ts` defaults it to `true` when the field is absent, for that reason.
+if (proof.verify.ok && !proof.completeness.indeterminate) {
+  // Nothing left the machine — for the classes `proof.completeness.coverage`
+  // marks non-`"none"`. A class sitting at `"none"` was never observed by the
+  // binary that wrote this window, so the zero makes no claim about it.
+  // See `EGRESS_COVERAGE_CLASSES` and `NO_EGRESS_COVERAGE`.
+  const provablyLocal = proof.completeness.outboundEgressEvents === 0;
+}
 ```
 
 ## Publishing (maintainers)

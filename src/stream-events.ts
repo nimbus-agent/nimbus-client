@@ -1,6 +1,6 @@
-// Type-only module: NO executable runtime logic. It is exact-path-excluded from the coverage floor
-// in scripts/coverage-floor/exclusions.ts (a type-only file emits no SF: lcov record). Adding runtime
-// logic here would silently bypass the floor — put runtime logic in a separate, covered module.
+// Type-only module: NO executable runtime logic, so it emits no `SF:` lcov record and never shows
+// up in coverage at all. Adding runtime logic here would therefore ship it unmeasured and unnoticed
+// — put runtime logic in a separate, covered module (see workflow-stream.ts).
 import type { WorkflowRunParams, WorkflowRunResult } from "./nimbus-client.js";
 
 /**

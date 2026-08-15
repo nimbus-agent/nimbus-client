@@ -80,8 +80,10 @@ if (import.meta.main) {
     } else {
       // Run the client's integration suite (test/) against the packed sdk —
       // NOT the repo meta-checks under scripts/, one of which asserts the sdk
-      // dep is the published "^1.3.0" and would (correctly) fail while the dep
-      // is temporarily pointed at the local tarball.
+      // dep is the published floor (see check-package-identity.test.ts) and would
+      // (correctly) fail while the dep is temporarily pointed at the local tarball.
+      // The floor is named there and nowhere else on purpose: a version literal
+      // repeated in a comment is one the next bump silently leaves behind.
       exitCode = run(["bun", "test", "test/"]).exitCode ?? 1;
     }
   } finally {
