@@ -74,6 +74,20 @@ export class FakeIpc {
   emit(method: string, params: unknown): void {
     for (const h of this.notifHandlers.get(method) ?? []) h(params);
   }
+  // Mirrors IPCClient's close surface. `askStream` binds this to end a stream
+  // when the transport dies — without it here, any test that starts a stream
+  // through this fake throws "ipc.onClose is not a function".
+  public closeHandlers = new Set<(err: Error) => void>();
+  onClose(handler: (err: Error) => void): void {
+    this.closeHandlers.add(handler);
+  }
+  offClose(handler: (err: Error) => void): void {
+    this.closeHandlers.delete(handler);
+  }
+  /** Simulate an unexpected transport close. */
+  emitClose(err = new Error("socket closed")): void {
+    for (const h of [...this.closeHandlers]) h(err);
+  }
   async disconnect(): Promise<void> {
     /* no-op fake */
   }

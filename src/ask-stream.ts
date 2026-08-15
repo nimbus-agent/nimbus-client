@@ -121,6 +121,31 @@ export function createAskStream(
   register("agent.subTaskProgress", onSubTask);
   register("agent.hitlBatch", onHitl);
 
+  /**
+   * An unexpected transport close must end the stream, not strand it.
+   *
+   * This is precisely the shape `IPCClient.onClose` documents: `engine.askStream`
+   * resolves immediately with a streamId and every subsequent event arrives as a
+   * NOTIFICATION, so once that RPC has settled there is no pending `call()` left
+   * for `failAll` to reject. Without this handler a gateway that dies mid-answer
+   * leaves the consumer's `for await` waiting forever — `failAll` runs over an
+   * empty pending map, `notifyClosed` over an empty handler set, and nothing ever
+   * resolves `waiters`.
+   *
+   * Registered here rather than in each consumer so every caller inherits it; the
+   * CLI already hand-rolls this for its own notification-waits.
+   *
+   * `offClose` goes into `unsubscribers`, which `finish()` drains — the transport's
+   * removable-handler rule, so a completed stream does not keep this closure (and
+   * the handle behind it) reachable from the live connection.
+   */
+  const onTransportClose = (err: Error): void => {
+    push({ type: "error", code: "transport_closed", message: err.message });
+    finish();
+  };
+  ipc.onClose(onTransportClose);
+  unsubscribers.push(() => ipc.offClose(onTransportClose));
+
   const onAbort = (): void => {
     cancelled = true;
     const sid = streamIdResolved;
