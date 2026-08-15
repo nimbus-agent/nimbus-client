@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.17.2](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.17.1...client-v0.17.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **ask-stream:** end the stream when the transport dies instead of hanging ([#66](https://github.com/nimbus-agent/nimbus-client/issues/66)) ([292df0a](https://github.com/nimbus-agent/nimbus-client/commit/292df0a731d297de41cc54beb2c803024d87a0c3))
+
 ## [0.17.1](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.17.0...client-v0.17.1) (2026-08-15)
 
 
