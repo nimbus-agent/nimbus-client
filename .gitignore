@@ -3,5 +3,10 @@ dist/
 coverage/
 *.tsbuildinfo
 .DS_Store
-.claude/
+# Claude Code's local state (settings.local.json, worktrees, caches) stays out, but
+# `.claude/commands/` holds shared, reviewed repo skills and is tracked. The re-include
+# needs the `.claude/*` form: git will not descend into an excluded DIRECTORY, so the
+# `.claude/` line would make the negation below unreachable.
+.claude/*
+!.claude/commands/
 .worktrees/
