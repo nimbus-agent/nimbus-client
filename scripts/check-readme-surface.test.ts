@@ -42,9 +42,15 @@ function interfaceMembers(): string[] {
 
 test("has enough members to be scanning the right block", () => {
   // The scan is regex-shaped, so its failure mode is matching nothing and passing
-  // vacuously. This is the floor that makes the assertion below mean something: the
-  // interface had 71 members when this was written, and a scan that suddenly finds a
-  // handful is a broken scan, not a shrunken surface.
+  // vacuously. This is the floor that makes the assertion below mean something: a scan
+  // that suddenly finds a handful is a broken scan, not a shrunken surface.
+  //
+  // The floor sits well below the real count on purpose — it guards the SCANNER, and a
+  // number that had to be edited on every interface change would get edited without
+  // being read. Don't restate today's count here either: this comment used to claim
+  // "the interface had 71 members when this was written", and it has 60, so the single
+  // number it carried was the only part of it that was wrong. Derive it instead
+  // (`interfaceMembers().length`).
   expect(interfaceMembers().length).toBeGreaterThan(50);
 });
 

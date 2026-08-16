@@ -2,12 +2,23 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+// The sdk checkout is a monorepo: its ROOT package.json is `@nimbus-dev/sdk-monorepo`,
+// `private: true` and carries no `version`, while the publishable `@nimbus-dev/sdk`
+// lives one level down. Packing the root fails with "package.json must have `name` and
+// `version` fields" — which is what this whole check did, on every invocation, from the
+// moment the sdk was restructured. Resolve to the packable package, not the checkout.
+const SDK_PACKAGE_SUBPATH = join("sdks", "typescript");
+
 export function resolveSiblingSdk(
   clientRoot: string,
   exists: (p: string) => boolean = existsSync,
 ): string | null {
   const sibling = join(dirname(clientRoot), "nimbus-sdk");
-  return exists(sibling) ? sibling : null;
+  if (!exists(sibling)) return null;
+  // Fall back to the checkout root so a pre-monorepo (or future flattened) layout
+  // still resolves; the version guard below is what catches an unpackable result.
+  const nested = join(sibling, SDK_PACKAGE_SUBPATH);
+  return exists(nested) ? nested : sibling;
 }
 
 // `bun pm pack` / `npm pack` flatten a scoped name into the tarball filename:
@@ -27,9 +38,17 @@ if (import.meta.main) {
     process.exit(1);
   }
   const sdkPkg = JSON.parse(readFileSync(join(sdkDir, "package.json"), "utf8")) as {
-    name: string;
-    version: string;
+    name?: string;
+    version?: string;
   };
+  // Without this, an unpackable directory produces `nimbus-dev-sdk-undefined.tgz` and
+  // the failure surfaces as an unrelated "Expected tarball not found" forty lines later.
+  if (!sdkPkg.name || !sdkPkg.version) {
+    console.error(
+      `${sdkDir} has no packable package.json (name=${String(sdkPkg.name)}, version=${String(sdkPkg.version)}).`,
+    );
+    process.exit(1);
+  }
   const dest = tmpdir(); // cross-platform temp dir (Non-Negotiable 5), not "/tmp"
 
   const run = (cmd: string[], cwd: string = clientRoot) =>

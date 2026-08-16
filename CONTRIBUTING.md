@@ -75,10 +75,15 @@ public thread on either.
 - Keep PRs focused; include tests for behavior changes.
 - Use [Conventional Commits](https://www.conventionalcommits.org/) — release-please
   derives the version bump and changelog from them.
-- `bun run typecheck && bun run lint && bun run build && bun test` must pass
-  (CI runs the same on Ubuntu, Windows and macOS, then additionally smoke-tests
-  the CJS bundle under Node and asserts no build-machine path is baked into
-  `dist/index.cjs`; SonarCloud runs `bun run test:coverage` as a blocking gate).
+- `bun run build && bun run typecheck && bun run lint && bun test` must pass.
+  **Build first.** `test/node-compat.test.ts` imports `../dist/index.js`, that path
+  is inside `tsconfig.json`'s `include`, and `dist/` is gitignored — so on a fresh
+  clone typecheck fails with `TS2307: Cannot find module '../dist/index.js'` until
+  a build has run. This is the order CI uses (`ci.yml`), and running it the other
+  way round is the usual reason a first contribution looks broken on checkout.
+  CI then additionally smoke-tests the CJS bundle under Node and asserts no
+  build-machine path is baked into `dist/index.cjs`; SonarCloud runs
+  `bun run test:coverage` as a blocking gate.
 
 ## Releases
 
