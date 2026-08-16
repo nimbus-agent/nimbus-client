@@ -321,7 +321,7 @@ export const NO_EGRESS_COVERAGE: EgressCoverageVector = Object.freeze({
 /**
  * Completeness attached to a prove-window result.
  *
- * **Breaking change in 1.0.0:** the scalar `tier: "authorized-actions"` field is
+ * **Breaking change in 0.16.0:** the scalar `tier: "authorized-actions"` field is
  * gone, replaced by the per-class `coverage` vector plus `indeterminate`.
  *
  * One string could not describe a binary observing several classes at different
