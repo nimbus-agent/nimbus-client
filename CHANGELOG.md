@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.17.3](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.17.2...client-v0.17.3) (2026-08-16)
+
+
+### Bug Fixes
+
+* **scripts:** resolve the packable sdk package so verify:sdk can actually run ([#69](https://github.com/nimbus-agent/nimbus-client/issues/69)) ([080ec5f](https://github.com/nimbus-agent/nimbus-client/commit/080ec5ff24247b8843a95107bb1426c453936f8d))
+
 ## [0.17.2](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.17.1...client-v0.17.2) (2026-08-15)
 
 
