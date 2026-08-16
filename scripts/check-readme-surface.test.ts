@@ -53,6 +53,17 @@ test("README documents every public NimbusClientLike member", () => {
   // Anywhere in the README counts, not a specific table cell: `close` is documented in
   // a prose example rather than the namespace table, and that is fine. What this
   // forbids is a method that ships with no mention at all.
-  const undocumented = interfaceMembers().filter((name) => !readme.includes(name));
+  //
+  // Identifier boundaries, not `readme.includes(name)`: a substring test lets a longer
+  // documented name vouch for a shorter undocumented one, which is this guard failing
+  // open in the one direction it exists to catch — `egressHead` in the namespace table
+  // answers for any member ending in `Head`, and `egressList` for any ending in `List`.
+  // Boundaries do not put prose off-limits, and are not meant to: a member named `run`
+  // is still satisfied by the word "run" in a sentence, which is the "anywhere in the
+  // README counts" rule above working as intended. What they stop is one identifier
+  // hiding inside another.
+  const undocumented = interfaceMembers().filter(
+    (name) => !new RegExp(`\\b${name.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(readme),
+  );
   expect(undocumented).toEqual([]);
 });

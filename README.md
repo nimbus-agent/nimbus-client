@@ -91,20 +91,28 @@ outbound action, recorded before it dispatches:
 ```typescript
 const { head, count } = await client.egressHead();      // ledger head + row count
 const { rows } = await client.egressList({ limit: 100 }); // recent rows
-const verify = await client.egressVerify();               // offline chain verify
 const proof = await client.egressProveWindow({ since: Date.now() - 3_600_000 });
 
-// A zero is only a claim when BOTH hold: the whole-ledger verify passed, AND the
-// window is not indeterminate. `indeterminate` means no boot marker covers the
-// window — nothing is known to have been observing, so a bare zero says nothing.
-// `validate.ts` defaults it to `true` when the field is absent, for that reason.
-if (proof.verify.ok && !proof.completeness.indeterminate) {
-  // Nothing left the machine — for the classes `proof.completeness.coverage`
-  // marks non-`"none"`. A class sitting at `"none"` was never observed by the
-  // binary that wrote this window, so the zero makes no claim about it.
-  // See `EGRESS_COVERAGE_CLASSES` and `NO_EGRESS_COVERAGE`.
-  const provablyLocal = proof.completeness.outboundEgressEvents === 0;
-}
+// A zero is only a claim when THREE things hold: the whole-ledger verify passed, the
+// window is not indeterminate, and the class you are asking about was actually being
+// observed. `indeterminate` means no boot marker covers the window — nothing is known
+// to have been observing, so a bare zero says nothing at all; `validate.ts` defaults
+// it to `true` when the field is absent, for that reason. There is a standalone
+// `egressVerify()` too, but `egressProveWindow` already carries the same whole-ledger
+// verify as `proof.verify`, so asking twice proves nothing extra.
+const { coverage, outboundEgressEvents, indeterminate } = proof.completeness;
+const sound = proof.verify.ok && !indeterminate && outboundEgressEvents === 0;
+const observed = (cls: EgressCoverageClass) => coverage[cls] !== "none";
+
+// Scoped claim: nothing left the machine over HTTP. A class sitting at `"none"` was
+// never observed by the binary that wrote this window, so the zero makes no claim
+// about it — which is why the coverage check is per-class rather than a formality.
+// See `EGRESS_COVERAGE_CLASSES` and `NO_EGRESS_COVERAGE`.
+const noHttpEgress = sound && observed("http");
+
+// Unqualified "nothing left this machine" is the much stronger claim, and it needs
+// EVERY class observed — not just the one you happened to ask about.
+const provablyLocal = sound && EGRESS_COVERAGE_CLASSES.every(observed);
 ```
 
 ## Publishing (maintainers)
