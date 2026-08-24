@@ -39,8 +39,9 @@ export function tempEndpoint(prefix: string): string {
   const id = `${prefix}-${String(process.pid)}-${String(Date.now())}-${String(
     Math.floor(Math.random() * 1e6),
   )}`;
-  // cross-platform-ok: a Windows named pipe is a literal `\\.\pipe\` namespace,
-  // not a filesystem path, so path.join() is wrong for it by construction.
+  // No path.join() on the win32 arm, deliberately: a named pipe name lives in the
+  // literal `\\.\pipe\` namespace, not on the filesystem, so joining it is wrong by
+  // construction. The POSIX arm is a real path and does use path.join().
   return process.platform === "win32"
     ? `${String.raw`\\.\pipe`}\\${id}`
     : path.join(os.tmpdir(), `${id}.sock`);
