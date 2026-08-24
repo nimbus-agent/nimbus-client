@@ -417,6 +417,21 @@ describe("NimbusClient method dispatch", () => {
     expect(got[1]).not.toHaveProperty("streamId");
   });
 
+  test("subscribeHitl dispose() unregisters, so a torn-down consumer stops being called", () => {
+    // The removable-handler rule: a leaked handler keeps a dead consumer
+    // reachable from the live connection, and keeps delivering prompts to it.
+    const ipc = new FakeIpc();
+    const got: HitlRequest[] = [];
+    const sub = makeClient(ipc).subscribeHitl((r) => got.push(r));
+
+    ipc.emit("agent.hitlBatch", { requestId: "r1", prompt: "Approve?" });
+    sub.dispose();
+    ipc.emit("agent.hitlBatch", { requestId: "r2", prompt: "Approve?" });
+
+    expect(got.map((r) => r.requestId)).toEqual(["r1"]);
+    expect(ipc.notifHandlers.get("agent.hitlBatch")).toHaveLength(0);
+  });
+
   test("close disconnects the transport", async () => {
     const ipc = new FakeIpc();
     let disconnected = false;

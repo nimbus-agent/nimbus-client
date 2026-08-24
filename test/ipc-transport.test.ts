@@ -1,44 +1,38 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { IPCClient, idKey, jsonRpcErrorMessage, tryParseJsonRecord } from "../src/ipc-transport.ts";
-
-const isWin = process.platform === "win32";
+import {
+  closeTestServers,
+  type RespondToLine,
+  serveNdjson,
+  type TestServer,
+  tempEndpoint,
+} from "./_socket-harness.ts";
 
 // Socket-free internal tests never connect, so this path is only a constructor argument; build it
 // cross-platform via tmpdir() rather than a hardcoded POSIX literal.
 const INTERNAL_FAKE_PATH = join(tmpdir(), "nimbus-ipc-internal.sock");
 
-let tmp: string;
+// The socket-backed tests below used to stand up their gateway with
+// `Bun.listen({ unix })`, which cannot open a Windows named pipe — so every one
+// of them carried `skipIf(isWin)` and the Windows CI leg proved nothing about
+// the transport it is the only leg to exercise. The shared harness speaks both,
+// so they run everywhere now.
 let socketPath: string;
-let server: ReturnType<typeof Bun.listen> | undefined;
+let server: TestServer | undefined;
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), "nimbus-ipc-"));
-  socketPath = join(tmp, "gw.sock");
+  socketPath = tempEndpoint("nimbus-ipc");
 });
-afterEach(() => {
-  server?.stop(true);
+afterEach(async () => {
   server = undefined;
-  rmSync(tmp, { recursive: true, force: true });
+  await closeTestServers();
 });
 
-function startServer(respond: (line: string, write: (s: string) => void) => void): void {
-  server = Bun.listen({
-    unix: socketPath,
-    socket: {
-      data(sock, chunk) {
-        const write = (s: string): void => {
-          (sock as unknown as { write: (s: string) => void }).write(s);
-        };
-        for (const line of new TextDecoder().decode(chunk).split("\n")) {
-          if (line.trim().length > 0) respond(line, write);
-        }
-      },
-    },
-  });
+async function startServer(respond: RespondToLine): Promise<void> {
+  server = await serveNdjson(socketPath, respond);
 }
 
 // ---------------------------------------------------------------------------
@@ -117,8 +111,8 @@ describe("IPCClient", () => {
     await expect(c.call("x", {})).rejects.toThrow(/not connected/);
   });
 
-  test.skipIf(isWin)("resolves a matching JSON-RPC response", async () => {
-    startServer((line, write) => {
+  test("resolves a matching JSON-RPC response", async () => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string; method: string };
       write(`${JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { echoed: req.method } })}\n`);
     });
@@ -128,8 +122,8 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)("resolves with undefined result when response has no result key", async () => {
-    startServer((line, write) => {
+  test("resolves with undefined result when response has no result key", async () => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
       // Deliberately omit "result" — exercises the `hasOwn(o, "result") ? o.result : undefined` branch
       write(`${JSON.stringify({ jsonrpc: "2.0", id: req.id })}\n`);
@@ -141,8 +135,8 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)("rejects on a JSON-RPC error response", async () => {
-    startServer((line, write) => {
+  test("rejects on a JSON-RPC error response", async () => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
       write(`${JSON.stringify({ jsonrpc: "2.0", id: req.id, error: { message: "boom" } })}\n`);
     });
@@ -152,8 +146,8 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)("rejects with default message when error has no message field", async () => {
-    startServer((line, write) => {
+  test("rejects with default message when error has no message field", async () => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
       // error object without a `message` key → falls through to "JSON-RPC error"
       write(`${JSON.stringify({ jsonrpc: "2.0", id: req.id, error: { code: -32600 } })}\n`);
@@ -164,8 +158,8 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)("dispatches notifications to onNotification handlers", async () => {
-    startServer((line, write) => {
+  test("dispatches notifications to onNotification handlers", async () => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
       write(`${JSON.stringify({ jsonrpc: "2.0", method: "evt.ping", params: { n: 1 } })}\n`);
       write(`${JSON.stringify({ jsonrpc: "2.0", id: req.id, result: null })}\n`);
@@ -179,8 +173,8 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)("dispatches notifications without params (no params key)", async () => {
-    startServer((line, write) => {
+  test("dispatches notifications without params (no params key)", async () => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
       // notification without params key
       write(`${JSON.stringify({ jsonrpc: "2.0", method: "evt.noparams" })}\n`);
@@ -195,30 +189,27 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)(
-    "second onNotification handler on same method is added to existing set",
-    async () => {
-      startServer((line, write) => {
-        const req = JSON.parse(line) as { id: string };
-        write(`${JSON.stringify({ jsonrpc: "2.0", method: "evt.multi", params: { v: 42 } })}\n`);
-        write(`${JSON.stringify({ jsonrpc: "2.0", id: req.id, result: null })}\n`);
-      });
-      const c = new IPCClient(socketPath);
-      await c.connect();
-      const a: unknown[] = [];
-      const b: unknown[] = [];
-      c.onNotification("evt.multi", (p) => a.push(p));
-      // Second registration on same method — hits the "set already exists" branch
-      c.onNotification("evt.multi", (p) => b.push(p));
-      await c.call("trigger", {});
-      expect(a).toEqual([{ v: 42 }]);
-      expect(b).toEqual([{ v: 42 }]);
-      await c.disconnect();
-    },
-  );
+  test("second onNotification handler on same method is added to existing set", async () => {
+    await startServer((line, write) => {
+      const req = JSON.parse(line) as { id: string };
+      write(`${JSON.stringify({ jsonrpc: "2.0", method: "evt.multi", params: { v: 42 } })}\n`);
+      write(`${JSON.stringify({ jsonrpc: "2.0", id: req.id, result: null })}\n`);
+    });
+    const c = new IPCClient(socketPath);
+    await c.connect();
+    const a: unknown[] = [];
+    const b: unknown[] = [];
+    c.onNotification("evt.multi", (p) => a.push(p));
+    // Second registration on same method — hits the "set already exists" branch
+    c.onNotification("evt.multi", (p) => b.push(p));
+    await c.call("trigger", {});
+    expect(a).toEqual([{ v: 42 }]);
+    expect(b).toEqual([{ v: 42 }]);
+    await c.disconnect();
+  });
 
-  test.skipIf(isWin)("notification for unknown method is silently dropped", async () => {
-    startServer((line, write) => {
+  test("notification for unknown method is silently dropped", async () => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
       // Send a notification for a method that has no handler registered
       write(`${JSON.stringify({ jsonrpc: "2.0", method: "unregistered.event", params: {} })}\n`);
@@ -232,8 +223,8 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)("ignores lines with non-2.0 jsonrpc version", async () => {
-    startServer((line, write) => {
+  test("ignores lines with non-2.0 jsonrpc version", async () => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
       // Send a malformed version first, then the real reply
       write(`${JSON.stringify({ jsonrpc: "1.0", id: req.id, result: "bad" })}\n`);
@@ -246,8 +237,8 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)("ignores lines that are invalid JSON", async () => {
-    startServer((line, write) => {
+  test("ignores lines that are invalid JSON", async () => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
       write("not valid json at all\n");
       write(`${JSON.stringify({ jsonrpc: "2.0", id: req.id, result: "after-junk" })}\n`);
@@ -259,8 +250,8 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)("ignores RPC response with wrong id (id mismatch)", async () => {
-    startServer((line, write) => {
+  test("ignores RPC response with wrong id (id mismatch)", async () => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
       // First send a reply for a different id (should be ignored), then the correct one
       write(`${JSON.stringify({ jsonrpc: "2.0", id: "wrong-id-99", result: "wrong" })}\n`);
@@ -273,8 +264,8 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)("ignores RPC response whose id is not a string or number", async () => {
-    startServer((line, write) => {
+  test("ignores RPC response whose id is not a string or number", async () => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
       // id is null — not string/number, should be silently dropped
       write(`${JSON.stringify({ jsonrpc: "2.0", id: null, result: "nope" })}\n`);
@@ -287,8 +278,8 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)("ignores notification with non-string method", async () => {
-    startServer((line, write) => {
+  test("ignores notification with non-string method", async () => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
       // notification where method is a number — should be ignored
       write(`${JSON.stringify({ jsonrpc: "2.0", method: 42, params: {} })}\n`);
@@ -301,8 +292,8 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)("connect() is idempotent (second call is a no-op)", async () => {
-    startServer((_line, _write) => {
+  test("connect() is idempotent (second call is a no-op)", async () => {
+    await startServer((_line, _write) => {
       /* no response needed */
     });
     const c = new IPCClient(socketPath);
@@ -312,9 +303,9 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)("call() without params omits params key from the request", async () => {
+  test("call() without params omits params key from the request", async () => {
     let receivedNoParams = false;
-    startServer((line, write) => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string; params?: unknown };
       receivedNoParams = !Object.hasOwn(req, "params");
       write(`${JSON.stringify({ jsonrpc: "2.0", id: req.id, result: "ok" })}\n`);
@@ -326,8 +317,8 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)("disconnect() rejects in-flight calls", async () => {
-    startServer(() => {
+  test("disconnect() rejects in-flight calls", async () => {
+    await startServer(() => {
       /* never responds */
     });
     const c = new IPCClient(socketPath);
@@ -337,8 +328,8 @@ describe("IPCClient", () => {
     await expect(pending).rejects.toThrow(/disconnected/);
   });
 
-  test.skipIf(isWin)("disconnect() on already-disconnected client does not throw", async () => {
-    startServer(() => {
+  test("disconnect() on already-disconnected client does not throw", async () => {
+    await startServer(() => {
       /* never responds */
     });
     const c = new IPCClient(socketPath);
@@ -348,29 +339,22 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test.skipIf(isWin)(
-    "socket close rejects in-flight calls with connection-closed error",
-    async () => {
-      startServer((line, write) => {
-        const req = JSON.parse(line) as { id: string };
-        // Send a reply so we know the server got the call
-        void req;
-        void write;
-        // Intentionally don't write — the server will be stopped forcefully
-      });
-      const c = new IPCClient(socketPath);
-      await c.connect();
-      const pendingCall = c.call<unknown>("test", {});
-      // Stop the server forcefully — this will close the socket
-      server?.stop(true);
-      server = undefined;
-      await expect(pendingCall).rejects.toThrow();
-    },
-  );
+  test("socket close rejects in-flight calls with connection-closed error", async () => {
+    await startServer(() => {
+      // Intentionally never writes — the server is stopped forcefully instead.
+    });
+    const c = new IPCClient(socketPath);
+    await c.connect();
+    const pendingCall = c.call<unknown>("test", {});
+    // Force-close: `stop()` destroys the live connection, not just the listener.
+    await server?.stop();
+    server = undefined;
+    await expect(pendingCall).rejects.toThrow();
+  });
 
-  test.skipIf(isWin)("number id in RPC response is dispatched correctly", async () => {
+  test("number id in RPC response is dispatched correctly", async () => {
     // Use a custom server that replies with a numeric id
-    startServer((line, write) => {
+    await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
       void req;
       // Reply with a numeric id — exercises the number arm of idKey in dispatchRpcLine

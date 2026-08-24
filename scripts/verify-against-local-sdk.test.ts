@@ -4,7 +4,9 @@ import {
   packableIdentity,
   resolvePackTarget,
   resolveSiblingSdk,
+  runVerification,
   tarballName,
+  type VerificationEnv,
 } from "./verify-against-local-sdk.ts";
 
 // Derive the expected sibling path with the same path.join semantics the
@@ -145,5 +147,170 @@ describe("resolvePackTarget — the whole decision the entry block used to make 
       },
     });
     expect(target).toBe(`${siblingSdk}/package.json could not be read: EACCES`);
+  });
+});
+
+describe("runVerification — the sequence the entry block used to run inline", () => {
+  const CLIENT_ROOT = join("/c", "gitrep", "nimbus-client");
+  const SDK_DIR = join(dirname(CLIENT_ROOT), "nimbus-sdk", "sdks", "typescript");
+  const PACK_DEST = join("/tmp-pack");
+  const TARBALL = join(PACK_DEST, "nimbus-dev-sdk-1.16.0.tgz");
+  const PKG_PATH = join(CLIENT_ROOT, "package.json");
+  const LOCK_PATH = join(CLIENT_ROOT, "bun.lock");
+
+  const ORIGINAL_PKG = `${JSON.stringify(
+    { name: "@nimbus-dev/client", dependencies: { "@nimbus-dev/sdk": "^1.6.0" } },
+    null,
+    2,
+  )}\n`;
+  const ORIGINAL_LOCK = '{"lockfileVersion":1}\n';
+
+  type Harness = {
+    env: VerificationEnv;
+    /** Every command run, in order, as a joined string. */
+    commands: string[];
+    /** Current contents of the two files the script rewrites. */
+    files: Map<string, string>;
+    /** Every write, in order — so a mid-run state is observable after restore. */
+    writes: { path: string; contents: string }[];
+    reports: string[];
+  };
+
+  /**
+   * `exitCodes` maps a joined command to the code it should return; anything not
+   * named succeeds. `missing` names paths that must report as absent.
+   */
+  function harness(opts: {
+    exitCodes?: Record<string, number | null>;
+    missing?: string[];
+    noLockfile?: boolean;
+  }): Harness {
+    const commands: string[] = [];
+    const reports: string[] = [];
+    const writes: { path: string; contents: string }[] = [];
+    const files = new Map<string, string>([
+      [PKG_PATH, ORIGINAL_PKG],
+      [
+        join(SDK_DIR, "package.json"),
+        JSON.stringify({ name: "@nimbus-dev/sdk", version: "1.16.0" }),
+      ],
+    ]);
+    if (opts.noLockfile !== true) files.set(LOCK_PATH, ORIGINAL_LOCK);
+
+    const present = new Set<string>([
+      join(dirname(CLIENT_ROOT), "nimbus-sdk"),
+      SDK_DIR,
+      TARBALL,
+      ...files.keys(),
+    ]);
+    for (const p of opts.missing ?? []) present.delete(p);
+
+    const env: VerificationEnv = {
+      run: (cmd) => {
+        const key = cmd.join(" ");
+        commands.push(key);
+        // NOT `?? 0`: a mapped `null` (a signalled process) must survive as null.
+        const code = opts.exitCodes?.[key];
+        return code === undefined ? 0 : code;
+      },
+      exists: (p) => present.has(p),
+      readFile: (p) => {
+        const v = files.get(p);
+        if (v === undefined) throw new Error(`ENOENT: ${p}`);
+        return v;
+      },
+      writeFile: (p, contents) => {
+        writes.push({ path: p, contents });
+        files.set(p, contents);
+      },
+      packDestination: PACK_DEST,
+      report: (m) => reports.push(m),
+    };
+    return { env, commands, files, writes, reports };
+  }
+
+  test("happy path: packs, repoints the dependency, tests, then restores", () => {
+    const h = harness({});
+    expect(runVerification(CLIENT_ROOT, h.env)).toBe(0);
+
+    expect(h.commands).toEqual([
+      "bun run build",
+      `bun pm pack --destination ${PACK_DEST}`,
+      "bun install",
+      "bun test test/",
+      "bun install",
+    ]);
+    // The dependency really was pointed at the packed tarball before installing.
+    const repointed = h.writes[0];
+    expect(repointed?.path).toBe(PKG_PATH);
+    expect(JSON.parse(repointed?.contents ?? "{}")).toMatchObject({
+      dependencies: { "@nimbus-dev/sdk": `file:${TARBALL}` },
+    });
+    // …and put back byte-for-byte afterwards.
+    expect(h.files.get(PKG_PATH)).toBe(ORIGINAL_PKG);
+    expect(h.files.get(LOCK_PATH)).toBe(ORIGINAL_LOCK);
+  });
+
+  test("a failed install of the packed sdk restores the checkout and never runs the tests", () => {
+    // The invariant this extraction exists for. Returning early here would leave
+    // package.json pointing at a tarball in the temp directory; falling through
+    // to `bun test` would report a green run against the PUBLISHED sdk.
+    const h = harness({ exitCodes: { "bun install": 1 } });
+    expect(runVerification(CLIENT_ROOT, h.env)).toBe(1);
+
+    expect(h.commands).not.toContain("bun test test/");
+    expect(h.reports).toContain(
+      "Installing the packed sdk failed; aborting without running tests.",
+    );
+    expect(h.files.get(PKG_PATH)).toBe(ORIGINAL_PKG);
+    expect(h.files.get(LOCK_PATH)).toBe(ORIGINAL_LOCK);
+  });
+
+  test("a failing test run still restores the checkout, and its exit code is reported", () => {
+    const h = harness({ exitCodes: { "bun test test/": 3 } });
+    expect(runVerification(CLIENT_ROOT, h.env)).toBe(3);
+    expect(h.files.get(PKG_PATH)).toBe(ORIGINAL_PKG);
+    // restore()'s reconciling install runs after the failing test run.
+    expect(h.commands.at(-1)).toBe("bun install");
+  });
+
+  test("a test run killed by a signal is a failure, not a success", () => {
+    // Bun reports a signalled process as exitCode null; `?? 1` must not become 0.
+    const h = harness({ exitCodes: { "bun test test/": null } });
+    expect(runVerification(CLIENT_ROOT, h.env)).toBe(1);
+  });
+
+  test("restores package.json alone when the repo has no lockfile", () => {
+    const h = harness({ noLockfile: true });
+    expect(runVerification(CLIENT_ROOT, h.env)).toBe(0);
+    expect(h.writes.some((w) => w.path === LOCK_PATH)).toBe(false);
+  });
+
+  test("a failed sdk build stops before anything in this repo is touched", () => {
+    const h = harness({ exitCodes: { "bun run build": 1 } });
+    expect(runVerification(CLIENT_ROOT, h.env)).toBe(1);
+    expect(h.reports).toEqual(["sdk build failed."]);
+    expect(h.writes).toEqual([]);
+  });
+
+  test("a failed pack stops before anything in this repo is touched", () => {
+    const h = harness({ exitCodes: { [`bun pm pack --destination ${PACK_DEST}`]: 1 } });
+    expect(runVerification(CLIENT_ROOT, h.env)).toBe(1);
+    expect(h.reports).toEqual(["sdk pack failed."]);
+    expect(h.writes).toEqual([]);
+  });
+
+  test("a missing tarball names the path it expected, and touches nothing", () => {
+    const h = harness({ missing: [TARBALL] });
+    expect(runVerification(CLIENT_ROOT, h.env)).toBe(1);
+    expect(h.reports).toEqual([`Expected tarball not found: ${TARBALL}`]);
+    expect(h.writes).toEqual([]);
+  });
+
+  test("an unresolvable sdk checkout reports why and runs no commands", () => {
+    const h = harness({ missing: [join(dirname(CLIENT_ROOT), "nimbus-sdk"), SDK_DIR] });
+    expect(runVerification(CLIENT_ROOT, h.env)).toBe(1);
+    expect(h.reports).toEqual(["No sibling ../nimbus-sdk checkout; cannot run integration check."]);
+    expect(h.commands).toEqual([]);
   });
 });

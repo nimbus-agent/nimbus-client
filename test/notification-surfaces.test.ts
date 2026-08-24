@@ -177,6 +177,22 @@ describe("MockClient parity", () => {
     });
   });
 
+  test("workflowRunStream cancel() answers from the workflowCancel fixture", async () => {
+    // A consumer testing its own cancel path against MockClient needs to be able
+    // to stage the "nothing was cancelled" answer; a hardcoded `true` would make
+    // that branch untestable through the mock.
+    const client = new MockClient({ workflowCancel: { cancelled: false } });
+    const handle = client.workflowRunStream({ name: "nightly", streamId: "wf-7" });
+    expect(handle.streamId).toBe("wf-7");
+    await expect(handle.cancel()).resolves.toEqual({ cancelled: false });
+  });
+
+  test("workflowRunStream cancel() defaults to cancelled with a synthetic streamId", async () => {
+    const handle = new MockClient().workflowRunStream({ name: "nightly" });
+    expect(handle.streamId).toBe("mock-stream");
+    await expect(handle.cancel()).resolves.toEqual({ cancelled: true });
+  });
+
   test("workflowRunStream has a usable default with no fixtures", async () => {
     const handle = new MockClient().workflowRunStream({ name: "nightly" });
     const events: WorkflowRunEvent[] = [];
