@@ -307,6 +307,33 @@ describe("runVerification — the sequence the entry block used to run inline", 
     expect(h.writes).toEqual([]);
   });
 
+  test("a failed RESTORE install is reported, not swallowed", () => {
+    // Both `bun install` calls are the same command string, so the shared harness
+    // cannot tell them apart — wrap it and fail only the SECOND, which is
+    // restore()'s reconciling install. That one used to have its exit code
+    // dropped on the floor: package.json back on the published floor,
+    // node_modules still holding the unpacked tarball, and a silent exit 0. The
+    // next `bun test` in the checkout then runs against the local sdk while every
+    // file in the repo says otherwise.
+    const h = harness({});
+    let installs = 0;
+    const env: VerificationEnv = {
+      ...h.env,
+      run: (cmd, cwd) => {
+        const code = h.env.run(cmd, cwd);
+        return cmd.join(" ") === "bun install" && ++installs === 2 ? 1 : code;
+      },
+    };
+
+    // The verification itself passed, so the exit code stays 0 — a failed
+    // reconcile is a diagnostic about this machine, not a verdict on the sdk.
+    expect(runVerification(CLIENT_ROOT, env)).toBe(0);
+    expect(h.reports.some((r) => r.includes("reinstalling the published sdk failed"))).toBe(true);
+    // The files really were restored; only node_modules is suspect.
+    expect(h.files.get(PKG_PATH)).toBe(ORIGINAL_PKG);
+    expect(h.files.get(LOCK_PATH)).toBe(ORIGINAL_LOCK);
+  });
+
   test("an unresolvable sdk checkout reports why and runs no commands", () => {
     const h = harness({ missing: [join(dirname(CLIENT_ROOT), "nimbus-sdk"), SDK_DIR] });
     expect(runVerification(CLIENT_ROOT, h.env)).toBe(1);

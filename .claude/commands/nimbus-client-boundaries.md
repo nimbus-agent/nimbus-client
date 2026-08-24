@@ -20,10 +20,14 @@ in the other three repos.
 
 ## 1. A `feat` here reaches nobody on its own
 
+Pins verified **2026-08-24**, with `0.17.3` on npm and in `.release-please-manifest.json`.
+Re-derive the column before relying on it: it sat a full minor behind reality for
+several releases, which is the exact failure this section exists to describe.
+
 | Consumer | Pins | Reality |
 | --- | --- | --- |
-| `Nimbus` — **two sites**: `packages/cli/package.json` *and* the root `package.json` | `^0.15.1`, lock resolves `0.15.1` | a caret on `0.x` is minor-locked, so it **cannot** receive 0.16/0.17 |
-| `nimbus-vscode` | `^0.17.0` | current |
+| `Nimbus` — **two sites**: `packages/cli/package.json` *and* the root `package.json` | `^0.17.2`, lock resolves `0.17.2` | same minor as latest, so a lock refresh takes `0.17.3`; a caret on `0.x` is minor-locked and **cannot** cross to 0.18 |
+| `nimbus-vscode` | `^0.17.0`, lock resolves `0.17.0` | same minor, one lock refresh behind; 0.18 will not reach it either |
 | `@nimbus-dev/sdk` (this package's only runtime dep) | `^1.6.0` floor, asserted in `scripts/check-package-identity.test.ts` | never `workspace:*`, never add a second runtime dep |
 
 Under `0.x` every `feat` is a **minor** bump, and a caret pin cannot cross a minor —
@@ -103,6 +107,16 @@ the `IPCClient` members the stream helpers touch (`call`, `onNotification`/`off�
 `ipc.onClose is not a function` — the comment in that file is a scar from exactly
 that.
 
+**Socket-backed tests go through `test/_socket-harness.ts`** (`tempEndpoint`,
+`serveNdjson`, `serveAndCapture`, `closeTestServers`), which is built on `node:net`
+because that is the one API that speaks both a POSIX unix socket and a **Windows named
+pipe**. `Bun.listen({ unix })` cannot open a named pipe, and standing one up privately
+is why 19 transport tests carried `test.skipIf(isWin)` — skipped on the only OS whose
+CI leg exercises the named-pipe branch of `src/ipc-transport.ts` at all. They run
+everywhere now; do not reintroduce a private server. Note both helpers under `test/`
+are `_`-prefixed and are **not** `*.test.ts`, so Biome lints them with the full `src/`
+ruleset (no `console`, no `!`) — see `CLAUDE.md`.
+
 ## 4. Promoting a gateway agent onto this surface
 
 Not "adding a tenth agent". The gateway already serves **14** kinds
@@ -152,13 +166,29 @@ There is no `preflight` script. The meta-checks under `scripts/` (`check-license
 ordinary `*.test.ts` files picked up by the default `bun test` glob — they are part of
 the whole-suite run, not a separate command.
 
+**`scripts/` is `sonar.sources`, and only `**/*.test.ts` is reclassified as test.** So
+a non-test helper added there is analysed as production source, can never appear in
+`coverage/lcov.info` (bun only instruments what it loads), and lands as uncovered
+**new code** on the PR that adds it — against a "Sonar way" gate that requires ≥80%
+coverage on new code and is a required check. That is the reason the two Node-only CI
+gates below are still inline in `ci.yml` rather than extracted into a `scripts/*.cjs`
+a contributor could run: extracting them is a ~30-line uncoverable source file, and
+the only ways to neutralise it are a coverage exclusion or an `allowJs` shim.
+
 **All three OS legs are required on `main` here** — `build-test` on ubuntu-24.04,
 macos-latest and windows-latest, plus `Analyze (javascript-typescript)`,
 `SonarQube Cloud analysis` and `cla`. That is stricter than the Nimbus monorepo, whose
 required checks have no per-OS legs. A Windows-only or macOS-only failure blocks.
 
-**Two CI gates have no local script.** Copy the `node -e` one-liners out of `ci.yml`
-if you touched the build:
+Those six contexts are stored as **literal strings** in the repo's `General` ruleset,
+and three of them embed the matrix value — `build-test (ubuntu-24.04)`, not a job id.
+Rename the job, or move a leg to `ubuntu-latest`, and GitHub does not remap: the
+required context simply never reports, and with `bypass_actors: []` the PR is stuck
+pending rather than red. Editing the `os:` matrix or the job name in `ci.yml` means
+editing the ruleset in the same change.
+
+**Two CI gates have no local script** — deliberately; see the `sonar.sources` note
+above. Copy the `node -e` one-liners out of `ci.yml` if you touched the build:
 
 - the CJS require smoke, which loads `dist/index.cjs` under Node and checks four
   exports;
@@ -201,7 +231,18 @@ nothing else reaches.
   packable package and guards on a missing `name`/`version`. Two properties to preserve
   if you touch it: it runs `bun test test/` only (never `scripts/`, one of which
   correctly fails while the dep points at a tarball), and it restores `package.json` +
-  `bun.lock` in a `finally` — so never `process.exit()` inside that `try`.
+  `bun.lock` in a `finally` — so never `process.exit()` inside `runVerification`, which
+  returns the exit code for the `import.meta.main` block to hand to `process.exit`.
+  The failure paths are covered now (`scripts/verify-against-local-sdk.test.ts` injects
+  a `VerificationEnv`), including the one that is invisible in the exit code:
+  `restore()`'s reconciling `bun install` can fail, leaving `package.json` on the
+  published floor while `node_modules` still holds the unpacked tarball. It reports
+  that; the run still exits with the verification's own answer.
+- **`test/ipc-transport.test.ts` "call() without params omits params key from the
+  request" cannot fail.** Make the assignment unconditional and it stays green:
+  `JSON.stringify` drops undefined-valued keys, so both versions put identical bytes on
+  the wire. The `if (params !== undefined)` it guards has no observable effect. Left in
+  place as documentation of intent — just do not read its green as evidence.
 
 ## 7. `dist/index.cjs` contains the sdk's TypeScript source
 
@@ -210,7 +251,8 @@ The two entry points are built by different tools and are not equivalent:
 - `dist/index.js` (~650 B) is `tsc` output. `@nimbus-dev/sdk/ipc` stays an **external**
   import resolved at the consumer's runtime — which is why the sdk must remain a real
   `dependencies` entry.
-- `dist/index.cjs` (~89 KB) is `bun build --bundle --conditions=bun`. The sdk's `bun`
+- `dist/index.cjs` (95,481 B built here against sdk 1.16.0 — the figure tracks the
+  installed sdk, not this repo) is `bun build --bundle --conditions=bun`. The sdk's `bun`
   export condition points at `./src/**/*.ts`, so the bundle **inlines the sdk's
   source** — grep it for `nimbus-dev/sdk` and you get `…/src/ipc/ndjson-line-reader`,
   `…/src/agents/guard-factory`.

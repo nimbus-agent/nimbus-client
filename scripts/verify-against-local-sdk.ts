@@ -162,8 +162,21 @@ export function runVerification(clientRoot: string, env: VerificationEnv): numbe
   const restore = (): void => {
     env.writeFile(pkgPath, originalPkg);
     if (originalLock !== null) env.writeFile(lockPath, originalLock);
-    // Reconcile node_modules back to the published dependency.
-    env.run(["bun", "install"]);
+    // Reconcile node_modules back to the published dependency. A failure here is
+    // not cosmetic and must not be swallowed: package.json and bun.lock are back
+    // on the published floor while node_modules still holds the unpacked local
+    // tarball, so the next `bun test` in this checkout runs against the local sdk
+    // while every file in the repo says it is running against the published one.
+    // Silence leaves a checkout that LOOKS restored. The exit code stays the
+    // verification's own answer — this is a diagnostic about the machine, not a
+    // verdict on the sdk.
+    if (env.run(["bun", "install"]) !== 0) {
+      env.report(
+        "Restored package.json and bun.lock, but reinstalling the published sdk failed — " +
+          "node_modules may still hold the packed tarball. Run `bun install` before trusting " +
+          "another test run here.",
+      );
+    }
   };
 
   const pkg = JSON.parse(originalPkg) as { dependencies: Record<string, string> };

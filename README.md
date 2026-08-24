@@ -31,8 +31,10 @@ const out = await client.queryItems({ services: ["github"], limit: 10 });
 await client.close();
 ```
 
-To point at a specific socket instead, pass it as an override — e.g. a Linux box
-with no `XDG_RUNTIME_DIR`:
+To point at a specific socket instead, pass it as an override — e.g. a gateway
+relocated with `NIMBUS_GATEWAY_SOCKET`, which this client does not read (only the
+`gateway.json` state file records that relocation, so a missing or stale state
+file leaves discovery on the platform default):
 
 ```typescript
 const { socketPath } = await discoverSocketPath({ override: "/tmp/nimbus-gateway.sock" });
