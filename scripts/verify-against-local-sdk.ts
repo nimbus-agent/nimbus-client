@@ -47,7 +47,7 @@ export function packableIdentity(
 // deterministically instead of scraping stdout (which future Bun versions may
 // pollute with warnings).
 export function tarballName(pkgName: string, version: string): string {
-  const flat = pkgName.replace(/^@/, "").replace(/\//g, "-");
+  const flat = pkgName.replace(/^@/, "").replaceAll("/", "-");
   return `${flat}-${version}.tgz`;
 }
 

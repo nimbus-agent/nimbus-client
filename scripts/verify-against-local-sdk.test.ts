@@ -37,6 +37,13 @@ test("flattens a scoped package name into its tarball filename", () => {
   expect(tarballName("@nimbus-dev/sdk", "1.3.0")).toBe("nimbus-dev-sdk-1.3.0.tgz");
 });
 
+test("flattens EVERY separator, not just the first", () => {
+  // Pins the all-occurrences semantics of the flattening step. The single-slash case
+  // above passes just as happily against a first-match-only replacement, so it cannot
+  // tell a global rewrite from a broken one.
+  expect(tarballName("@scope/group/pkg", "0.1.0")).toBe("scope-group-pkg-0.1.0.tgz");
+});
+
 describe("packableIdentity", () => {
   test("accepts a real package", () => {
     expect(packableIdentity("/sdk", { name: "@nimbus-dev/sdk", version: "1.16.0" })).toEqual({
