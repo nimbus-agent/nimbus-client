@@ -205,21 +205,33 @@ export function runVerification(clientRoot: string, env: VerificationEnv): numbe
   return exitCode;
 }
 
+/**
+ * The real, process-backed environment: the only part of this script that
+ * touches the filesystem or spawns anything.
+ *
+ * It is a named export rather than an object literal inside the entry block for
+ * the reason the block itself exists — nothing inside `import.meta.main` can be
+ * reached by a test, so sixteen lines of dependency wiring in there is sixteen
+ * lines nothing holds to its contract. `packDestination` in particular is a
+ * cross-platform requirement (`tmpdir()`, never a `"/tmp"` literal) that a test
+ * can now assert instead of a comment merely asserting it.
+ */
+export function realVerificationEnv(clientRoot: string): VerificationEnv {
+  return {
+    run: (cmd, cwd = clientRoot) =>
+      Bun.spawnSync(cmd, { cwd, stdout: "inherit", stderr: "inherit" }).exitCode,
+    exists: existsSync,
+    readFile: (p) => readFileSync(p, "utf8"),
+    writeFile: (p, contents) => {
+      writeFileSync(p, contents);
+    },
+    packDestination: tmpdir(), // cross-platform temp dir (Non-Negotiable 5), not "/tmp"
+    report: (message) => {
+      console.error(message);
+    },
+  };
+}
+
 if (import.meta.main) {
-  const clientRoot = process.cwd();
-  process.exit(
-    runVerification(clientRoot, {
-      run: (cmd, cwd = clientRoot) =>
-        Bun.spawnSync(cmd, { cwd, stdout: "inherit", stderr: "inherit" }).exitCode,
-      exists: existsSync,
-      readFile: (p) => readFileSync(p, "utf8"),
-      writeFile: (p, contents) => {
-        writeFileSync(p, contents);
-      },
-      packDestination: tmpdir(), // cross-platform temp dir (Non-Negotiable 5), not "/tmp"
-      report: (message) => {
-        console.error(message);
-      },
-    }),
-  );
+  process.exit(runVerification(process.cwd(), realVerificationEnv(process.cwd())));
 }

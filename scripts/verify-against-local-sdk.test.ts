@@ -1,7 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   packableIdentity,
+  realVerificationEnv,
   resolvePackTarget,
   resolveSiblingSdk,
   runVerification,
@@ -339,5 +342,71 @@ describe("runVerification — the sequence the entry block used to run inline", 
     expect(runVerification(CLIENT_ROOT, h.env)).toBe(1);
     expect(h.reports).toEqual(["No sibling ../nimbus-sdk checkout; cannot run integration check."]);
     expect(h.commands).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// realVerificationEnv — the process-backed wiring
+// ---------------------------------------------------------------------------
+
+/**
+ * These used to live inside `import.meta.main`, where no test could reach them,
+ * so every one of these properties was asserted only by the comment next to it.
+ *
+ * This describe owns its own temp directory and removes it itself: the file has
+ * no lifecycle hooks to inherit, and a test that leaves a directory behind in
+ * `tmpdir()` is a test that litters every CI run.
+ */
+describe("realVerificationEnv", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "nimbus-client-env-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("packs into the platform temp dir, not a hardcoded /tmp", () => {
+    // Non-Negotiable 5 (platform equality): "/tmp" does not exist on Windows, so
+    // a literal there would send `bun pm pack` somewhere that cannot be created.
+    expect(realVerificationEnv(dir).packDestination).toBe(tmpdir());
+  });
+
+  test("exists, readFile and writeFile are wired to the real filesystem", () => {
+    const env = realVerificationEnv(dir);
+    const file = join(dir, "package.json");
+    expect(env.exists(file)).toBe(false);
+    env.writeFile(file, '{"name":"probe"}');
+    expect(env.exists(file)).toBe(true);
+    expect(env.readFile(file)).toBe('{"name":"probe"}');
+  });
+
+  test("run executes the command and returns its exit code", () => {
+    const env = realVerificationEnv(dir);
+    // `bun` is the runtime executing this test, so it is present by construction
+    // on every platform this suite runs on.
+    expect(env.run(["bun", "--version"])).toBe(0);
+  });
+
+  test("run surfaces a non-zero exit code rather than swallowing it", () => {
+    // The whole sequence branches on this number: a step that failed must not be
+    // read as a step that passed. `--eval` is spelled the same on every platform.
+    expect(realVerificationEnv(dir).run(["bun", "--eval", "process.exit(3)"])).toBe(3);
+  });
+
+  test("report goes to stderr, so it never contaminates stdout", () => {
+    const env = realVerificationEnv(dir);
+    const original = console.error;
+    const seen: unknown[] = [];
+    console.error = (...args: unknown[]): void => {
+      seen.push(args[0]);
+    };
+    try {
+      env.report("something went wrong");
+    } finally {
+      console.error = original;
+    }
+    expect(seen).toEqual(["something went wrong"]);
   });
 });

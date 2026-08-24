@@ -292,14 +292,26 @@ describe("IPCClient", () => {
     await c.disconnect();
   });
 
-  test("connect() is idempotent (second call is a no-op)", async () => {
-    await startServer((_line, _write) => {
-      /* no response needed */
+  test("connect() is idempotent: a second call leaves the live socket usable", async () => {
+    await startServer((line, write) => {
+      const req = JSON.parse(line) as { id: string };
+      write(`${JSON.stringify({ jsonrpc: "2.0", id: req.id, result: "still-here" })}
+`);
     });
     const c = new IPCClient(socketPath);
     await c.connect();
-    // Second connect should return immediately without error (already connected)
-    await c.connect();
+    await expect(c.connect()).resolves.toBeUndefined();
+    await expect(c.call<string>("test", {})).resolves.toBe("still-here");
+    // The assertion that earns the test. "Resolves without throwing" does NOT
+    // distinguish an early return from a second dial — both resolve, and the call
+    // above round-trips either way, because a replacement socket works fine. Only
+    // the server can see the difference, so it is the server that is asked.
+    //
+    // It is asserted AFTER the round-trip on purpose: both ends share one event
+    // loop, so the server's `connection` event has not necessarily been processed
+    // when `connect()` resolves. A completed request/response has, by definition,
+    // gone through it.
+    expect(server?.accepted()).toBe(1);
     await c.disconnect();
   });
 
@@ -328,15 +340,17 @@ describe("IPCClient", () => {
     await expect(pending).rejects.toThrow(/disconnected/);
   });
 
-  test("disconnect() on already-disconnected client does not throw", async () => {
+  test("disconnect() on an already-disconnected client is a no-op", async () => {
     await startServer(() => {
       /* never responds */
     });
     const c = new IPCClient(socketPath);
     await c.connect();
     await c.disconnect();
-    // Second disconnect: no pending, no socket — should be a no-op
-    await c.disconnect();
+    // Second disconnect: no pending calls, and no socket left to end. Both teardown
+    // helpers early-return on a null socket, and this assertion is what holds them
+    // to it — without the guards, `.end()` on null throws and this rejects.
+    await expect(c.disconnect()).resolves.toBeUndefined();
   });
 
   test("socket close rejects in-flight calls with connection-closed error", async () => {

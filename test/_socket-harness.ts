@@ -23,6 +23,12 @@ export type RespondToLine = (line: string, write: (s: string) => void) => void;
 export type TestServer = {
   readonly endpoint: string;
   /**
+   * Connections ACCEPTED since this server started, not connections currently
+   * live. A test that asserts a client did not silently open a second socket
+   * needs a number that a subsequent close cannot walk back.
+   */
+  accepted: () => number;
+  /**
    * Force-close. Live connections are DESTROYED first, not merely refused: the
    * tests that matter here are the ones where the gateway dies underneath an
    * in-flight call, and a plain `server.close()` only stops accepting new
@@ -70,10 +76,16 @@ async function listen(server: net.Server, endpoint: string): Promise<void> {
   });
 }
 
-function register(server: net.Server, endpoint: string, sockets: Set<net.Socket>): TestServer {
+function register(
+  server: net.Server,
+  endpoint: string,
+  sockets: Set<net.Socket>,
+  accepted: { n: number },
+): TestServer {
   let stopped = false;
   const handle: TestServer = {
     endpoint,
+    accepted: () => accepted.n,
     stop: async () => {
       if (stopped) return;
       stopped = true;
@@ -96,7 +108,8 @@ function register(server: net.Server, endpoint: string, sockets: Set<net.Socket>
  * errors: destroying a socket raises ECONNRESET on the other end, and an
  * unhandled `error` event on a `net.Socket` takes the whole test process down.
  */
-function adopt(sockets: Set<net.Socket>, sock: net.Socket): void {
+function adopt(sockets: Set<net.Socket>, sock: net.Socket, accepted: { n: number }): void {
+  accepted.n += 1;
   sockets.add(sock);
   sock.on("error", () => {
     /* a killed connection is the point of these tests, not a failure */
@@ -109,8 +122,9 @@ function adopt(sockets: Set<net.Socket>, sock: net.Socket): void {
 /** A gateway that answers NDJSON requests: `respond` runs once per complete line. */
 export async function serveNdjson(endpoint: string, respond: RespondToLine): Promise<TestServer> {
   const sockets = new Set<net.Socket>();
+  const accepted = { n: 0 };
   const server = net.createServer((sock) => {
-    adopt(sockets, sock);
+    adopt(sockets, sock, accepted);
     let buf = "";
     const write = (s: string): void => {
       sock.write(s);
@@ -127,7 +141,7 @@ export async function serveNdjson(endpoint: string, respond: RespondToLine): Pro
     });
   });
   await listen(server, endpoint);
-  return register(server, endpoint, sockets);
+  return register(server, endpoint, sockets, accepted);
 }
 
 /**
@@ -138,16 +152,17 @@ export async function serveAndCapture(
   endpoint: string,
 ): Promise<{ server: TestServer; socket: Promise<net.Socket> }> {
   const sockets = new Set<net.Socket>();
+  const accepted = { n: 0 };
   let handOver: (s: net.Socket) => void = () => undefined;
   const socket = new Promise<net.Socket>((resolve) => {
     handOver = resolve;
   });
   const server = net.createServer((sock) => {
-    adopt(sockets, sock);
+    adopt(sockets, sock, accepted);
     handOver(sock);
   });
   await listen(server, endpoint);
-  return { server: register(server, endpoint, sockets), socket };
+  return { server: register(server, endpoint, sockets, accepted), socket };
 }
 
 /** `afterEach` teardown: closes every server this module is still holding open. */
