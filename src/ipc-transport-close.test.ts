@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import net from "node:net";
-import os from "node:os";
-import path from "node:path";
 
+import { closeTestServers, serveAndCapture, tempEndpoint } from "../test/_socket-harness.ts";
 import { IPCClient } from "./ipc-transport.js";
 
 /**
@@ -13,49 +11,8 @@ import { IPCClient } from "./ipc-transport.js";
  * that started the work already resolved. Only a genuine transport death
  * reproduces that, so these drive a real server and kill it.
  */
-function tempEndpoint(): string {
-  const id = `nimbus-close-test-${String(process.pid)}-${String(Date.now())}-${String(
-    Math.floor(Math.random() * 1e6),
-  )}`;
-  // cross-platform-ok: a Windows named pipe is a literal `\\.\pipe\` namespace,
-  // not a filesystem path, so path.join() is wrong for it by construction.
-  return process.platform === "win32"
-    ? `${String.raw`\\.\pipe`}\\${id}`
-    : path.join(os.tmpdir(), `${id}.sock`);
-}
 
-const servers: net.Server[] = [];
-
-afterEach(async () => {
-  await Promise.all(
-    servers.splice(0).map(
-      (s) =>
-        new Promise<void>((resolve) => {
-          s.close(() => {
-            resolve();
-          });
-        }),
-    ),
-  );
-});
-
-/** A Gateway that accepts a connection and hands the socket back for killing. */
-async function serveAndCapture(endpoint: string): Promise<{ socket: Promise<net.Socket> }> {
-  let handOver: (s: net.Socket) => void = () => undefined;
-  const socket = new Promise<net.Socket>((resolve) => {
-    handOver = resolve;
-  });
-  const server = net.createServer((sock) => {
-    handOver(sock);
-  });
-  servers.push(server);
-  await new Promise<void>((resolve) => {
-    server.listen(endpoint, () => {
-      resolve();
-    });
-  });
-  return { socket };
-}
+afterEach(closeTestServers);
 
 /** Resolves once the handler has been invoked, or rejects after `ms`. */
 function firstCall(ms: number): {
@@ -79,7 +36,7 @@ function firstCall(ms: number): {
 
 describe("IPCClient.onClose", () => {
   it("fires with an Error when the gateway dies underneath a notification wait", async () => {
-    const endpoint = tempEndpoint();
+    const endpoint = tempEndpoint("nimbus-close-test");
     const { socket } = await serveAndCapture(endpoint);
     const client = new IPCClient(endpoint);
     await client.connect();
@@ -99,7 +56,7 @@ describe("IPCClient.onClose", () => {
   });
 
   it("does NOT fire on a deliberate disconnect()", async () => {
-    const endpoint = tempEndpoint();
+    const endpoint = tempEndpoint("nimbus-close-test");
     await serveAndCapture(endpoint);
     const client = new IPCClient(endpoint);
     await client.connect();
@@ -118,7 +75,7 @@ describe("IPCClient.onClose", () => {
   });
 
   it("stops firing after offClose", async () => {
-    const endpoint = tempEndpoint();
+    const endpoint = tempEndpoint("nimbus-close-test");
     const { socket } = await serveAndCapture(endpoint);
     const client = new IPCClient(endpoint);
     await client.connect();
@@ -138,7 +95,7 @@ describe("IPCClient.onClose", () => {
   });
 
   it("invokes every handler even when one throws", async () => {
-    const endpoint = tempEndpoint();
+    const endpoint = tempEndpoint("nimbus-close-test");
     const { socket } = await serveAndCapture(endpoint);
     const client = new IPCClient(endpoint);
     await client.connect();
@@ -162,7 +119,7 @@ describe("IPCClient.onClose", () => {
   });
 
   it("still invokes a handler a sibling removed DURING notification", async () => {
-    const endpoint = tempEndpoint();
+    const endpoint = tempEndpoint("nimbus-close-test");
     const { socket } = await serveAndCapture(endpoint);
     const client = new IPCClient(endpoint);
     await client.connect();
@@ -194,7 +151,7 @@ describe("IPCClient.onClose", () => {
   });
 
   it("rejects a pending call AND notifies close, in that order", async () => {
-    const endpoint = tempEndpoint();
+    const endpoint = tempEndpoint("nimbus-close-test");
     const { socket } = await serveAndCapture(endpoint);
     const client = new IPCClient(endpoint);
     await client.connect();

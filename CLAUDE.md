@@ -21,7 +21,7 @@ gateway (`nimbus start`) without hand-rolling the IPC contract. Published to npm
 
 ```bash
 bun run typecheck      # tsc --noEmit over tsconfig.json (src + test + scripts in one project)
-bun run lint           # biome check .  (whole tree; test/ + scripts/ have rule overrides)
+bun run lint           # biome check .  (whole tree; `**/*.test.ts` + scripts/ have rule overrides)
 bun run build          # dist/ ESM + bundled CJS + .d.ts
 bun run test           # bun test
 bun run test:coverage  # lcov → coverage/lcov.info; what the SonarCloud gate consumes
@@ -52,5 +52,9 @@ bun run verify:sdk     # pack a sibling ../nimbus-sdk and test against it (pre-r
 
 - Local sdk co-development uses `bun link @nimbus-dev/sdk`; a `bun install` here
   overwrites that link — relink afterward.
+- Biome's test relaxations (`noConsole`, `noNonNullAssertion`) key on
+  `**/*.test.ts`, **not** on `test/` — so the shared helpers `test/_fake-ipc.ts`
+  and `test/_socket-harness.ts` are linted with the full `src/` ruleset, while a
+  `*.test.ts` file under `src/` gets the relaxations.
 - GitHub-primary (`github.com/nimbus-agent/nimbus-client`); the GitLab mirror is warm-standby only.
 - Releases: Conventional Commits → release-please → `npm publish --provenance` via OIDC (no npm token).

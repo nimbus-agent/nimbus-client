@@ -164,3 +164,42 @@ describe("workflowRunStream correlation", () => {
     await handle.result;
   });
 });
+
+describe("workflowRunStream teardown", () => {
+  test("finish() releases EVERY parked next(), not just the first", async () => {
+    // The hang this guards: `finish()` drains `waiters` in a LOOP. Resolving only
+    // the head leaves the rest awaiting a promise nothing will ever settle — and
+    // a workflow stream has no `requestTimeoutMs` behind it, because the RPC that
+    // started the run has already returned.
+    //
+    // THREE waiters, not two: `push()` hands the terminal `done` event to the
+    // first, so with only one left over a single-shot `if (w !== undefined)`
+    // drains it and the test cannot tell a loop from an if.
+    const ipc = new FakeIpc();
+    const finishRun = ipc.deferMethod("workflow.run", RUN_RESULT);
+    const handle = createWorkflowRunStream(asIpc(ipc), { name: "x" }, validateWorkflowRun);
+
+    const it = handle[Symbol.asyncIterator]();
+    const first = it.next();
+    const rest = [it.next(), it.next()];
+
+    finishRun();
+
+    expect((await first).value).toMatchObject({ type: "done" });
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stillParked = new Promise<"still parked">((resolve) => {
+      timer = setTimeout(() => {
+        resolve("still parked");
+      }, 250);
+    });
+    const outcomes = await Promise.all(rest.map(async (p) => await Promise.race([p, stillParked])));
+    if (timer !== undefined) clearTimeout(timer);
+
+    expect(outcomes).toEqual([
+      { value: undefined, done: true },
+      { value: undefined, done: true },
+    ]);
+    await handle.result;
+  });
+});

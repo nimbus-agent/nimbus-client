@@ -1034,6 +1034,21 @@ describe("validateConnectorSetConfig", () => {
     ).toEqual({ service: "github", intervalMs: null, depth: null, enabled: null });
   });
 
+  test("carries the values the gateway actually applied", () => {
+    // Every existing case here sends nulls or a bad type, so the arm that returns
+    // a real value was never taken: a `nullableBool` that answered null whatever
+    // it was given would have passed the whole suite, and every consumer reading
+    // `enabled` off a successful setConfig would see null.
+    expect(
+      validateConnectorSetConfig("m", {
+        service: "github",
+        intervalMs: 900_000,
+        depth: "full",
+        enabled: true,
+      }),
+    ).toEqual({ service: "github", intervalMs: 900_000, depth: "full", enabled: true });
+  });
+
   test("rejects a non-boolean, non-null enabled", () => {
     expect(() =>
       validateConnectorSetConfig("m", {

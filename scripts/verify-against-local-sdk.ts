@@ -47,7 +47,7 @@ export function packableIdentity(
 // deterministically instead of scraping stdout (which future Bun versions may
 // pollute with warnings).
 export function tarballName(pkgName: string, version: string): string {
-  const flat = pkgName.replace(/^@/, "").replace(/\//g, "-");
+  const flat = pkgName.replace(/^@/, "").replaceAll("/", "-");
   return `${flat}-${version}.tgz`;
 }
 
@@ -95,33 +95,60 @@ export function resolvePackTarget(
   return typeof identity === "string" ? identity : { dir, ...identity };
 }
 
-if (import.meta.main) {
-  const clientRoot = process.cwd();
-  const target = resolvePackTarget(clientRoot);
+/** Everything `runVerification` touches outside its own process. */
+export type VerificationEnv = {
+  /** Run a command to completion. Returns its exit code; `null` if a signal killed it. */
+  readonly run: (cmd: string[], cwd?: string) => number | null;
+  readonly exists: (p: string) => boolean;
+  readonly readFile: (p: string) => string;
+  readonly writeFile: (p: string, contents: string) => void;
+  /** Where `bun pm pack` drops the tarball. */
+  readonly packDestination: string;
+  /** Diagnostics for the operator; wired to `console.error` by the entry block. */
+  readonly report: (message: string) => void;
+};
+
+/**
+ * The whole `verify:sdk` sequence, minus the process it runs in.
+ *
+ * Extracted from the `import.meta.main` block for the same reason
+ * {@link resolvePackTarget} was: the decisions that matter here are the ones
+ * taken when a step FAILS, and nothing inside an entry block can be reached by a
+ * test. The one that matters most is `restore()` — this script rewrites the
+ * repo's own `package.json` and `bun.lock` to point at a local tarball, so a
+ * path that returns without restoring leaves the developer's checkout wired to a
+ * file in the temp directory. That path is the failure path, which is precisely
+ * the one nobody exercises by hand.
+ *
+ * Returns the exit code the caller should exit with. It never calls
+ * `process.exit` itself: an exit inside the `try` would skip the `finally` that
+ * puts the checkout back.
+ */
+export function runVerification(clientRoot: string, env: VerificationEnv): number {
+  const target = resolvePackTarget(clientRoot, {
+    exists: env.exists,
+    readPackageJson: (dir) => env.readFile(join(dir, "package.json")),
+  });
   if (typeof target === "string") {
-    console.error(target);
-    process.exit(1);
+    env.report(target);
+    return 1;
   }
   const sdkDir = target.dir;
-  const dest = tmpdir(); // cross-platform temp dir (Non-Negotiable 5), not "/tmp"
-
-  const run = (cmd: string[], cwd: string = clientRoot) =>
-    Bun.spawnSync(cmd, { cwd, stdout: "inherit", stderr: "inherit" });
 
   // Build + pack the sibling sdk (before mutating this repo, so a failure here
   // leaves package.json untouched).
-  if (run(["bun", "run", "build"], sdkDir).exitCode !== 0) {
-    console.error("sdk build failed.");
-    process.exit(1);
+  if (env.run(["bun", "run", "build"], sdkDir) !== 0) {
+    env.report("sdk build failed.");
+    return 1;
   }
-  if (run(["bun", "pm", "pack", "--destination", dest], sdkDir).exitCode !== 0) {
-    console.error("sdk pack failed.");
-    process.exit(1);
+  if (env.run(["bun", "pm", "pack", "--destination", env.packDestination], sdkDir) !== 0) {
+    env.report("sdk pack failed.");
+    return 1;
   }
-  const tarball = join(dest, tarballName(target.name, target.version));
-  if (!existsSync(tarball)) {
-    console.error(`Expected tarball not found: ${tarball}`);
-    process.exit(1);
+  const tarball = join(env.packDestination, tarballName(target.name, target.version));
+  if (!env.exists(tarball)) {
+    env.report(`Expected tarball not found: ${tarball}`);
+    return 1;
   }
 
   // Point the client's sdk dependency at the packed tarball and install it.
@@ -129,27 +156,40 @@ if (import.meta.main) {
   // dependency (Bun 1.3.14), so rewrite the dep to file:<tarball> + install.
   const pkgPath = join(clientRoot, "package.json");
   const lockPath = join(clientRoot, "bun.lock");
-  const originalPkg = readFileSync(pkgPath, "utf8");
-  const originalLock = existsSync(lockPath) ? readFileSync(lockPath, "utf8") : null;
+  const originalPkg = env.readFile(pkgPath);
+  const originalLock = env.exists(lockPath) ? env.readFile(lockPath) : null;
 
-  const restore = () => {
-    writeFileSync(pkgPath, originalPkg);
-    if (originalLock !== null) writeFileSync(lockPath, originalLock);
-    // Reconcile node_modules back to the published dependency.
-    run(["bun", "install"]);
+  const restore = (): void => {
+    env.writeFile(pkgPath, originalPkg);
+    if (originalLock !== null) env.writeFile(lockPath, originalLock);
+    // Reconcile node_modules back to the published dependency. A failure here is
+    // not cosmetic and must not be swallowed: package.json and bun.lock are back
+    // on the published floor while node_modules still holds the unpacked local
+    // tarball, so the next `bun test` in this checkout runs against the local sdk
+    // while every file in the repo says it is running against the published one.
+    // Silence leaves a checkout that LOOKS restored. The exit code stays the
+    // verification's own answer — this is a diagnostic about the machine, not a
+    // verdict on the sdk.
+    if (env.run(["bun", "install"]) !== 0) {
+      env.report(
+        "Restored package.json and bun.lock, but reinstalling the published sdk failed — " +
+          "node_modules may still hold the packed tarball. Run `bun install` before trusting " +
+          "another test run here.",
+      );
+    }
   };
 
   const pkg = JSON.parse(originalPkg) as { dependencies: Record<string, string> };
   pkg.dependencies[target.name] = `file:${tarball}`;
-  writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  env.writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
 
-  // Never process.exit() inside the try — that would skip restore().
+  // Never return from inside the try — that would skip restore().
   let exitCode = 1;
   try {
-    if (run(["bun", "install"]).exitCode !== 0) {
+    if (env.run(["bun", "install"]) !== 0) {
       // Fail loudly: do NOT fall through to `bun test`, which would silently
       // pass against the *published* sdk and report a false green.
-      console.error("Installing the packed sdk failed; aborting without running tests.");
+      env.report("Installing the packed sdk failed; aborting without running tests.");
     } else {
       // Run the client's integration suite (test/) against the packed sdk —
       // NOT the repo meta-checks under scripts/, one of which asserts the sdk
@@ -157,10 +197,41 @@ if (import.meta.main) {
       // (correctly) fail while the dep is temporarily pointed at the local tarball.
       // The floor is named there and nowhere else on purpose: a version literal
       // repeated in a comment is one the next bump silently leaves behind.
-      exitCode = run(["bun", "test", "test/"]).exitCode ?? 1;
+      exitCode = env.run(["bun", "test", "test/"]) ?? 1;
     }
   } finally {
     restore();
   }
-  process.exit(exitCode);
+  return exitCode;
+}
+
+/**
+ * The real, process-backed environment: the only part of this script that
+ * touches the filesystem or spawns anything.
+ *
+ * It is a named export rather than an object literal inside the entry block for
+ * the reason the block itself exists — nothing inside `import.meta.main` can be
+ * reached by a test, so sixteen lines of dependency wiring in there is sixteen
+ * lines nothing holds to its contract. `packDestination` in particular is a
+ * cross-platform requirement (`tmpdir()`, never a `"/tmp"` literal) that a test
+ * can now assert instead of a comment merely asserting it.
+ */
+export function realVerificationEnv(clientRoot: string): VerificationEnv {
+  return {
+    run: (cmd, cwd = clientRoot) =>
+      Bun.spawnSync(cmd, { cwd, stdout: "inherit", stderr: "inherit" }).exitCode,
+    exists: existsSync,
+    readFile: (p) => readFileSync(p, "utf8"),
+    writeFile: (p, contents) => {
+      writeFileSync(p, contents);
+    },
+    packDestination: tmpdir(), // cross-platform temp dir (Non-Negotiable 5), not "/tmp"
+    report: (message) => {
+      console.error(message);
+    },
+  };
+}
+
+if (import.meta.main) {
+  process.exit(runVerification(process.cwd(), realVerificationEnv(process.cwd())));
 }

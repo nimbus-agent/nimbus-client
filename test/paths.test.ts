@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { tmpdir } from "node:os";
 
 import { getNimbusPaths } from "../src/paths.ts";
 
@@ -60,6 +61,36 @@ describe("getNimbusPaths per platform", () => {
     process.env["TMPDIR"] = "/synthetic-tmpdir-test/";
     const p = getNimbusPaths();
     expect(p.socketPath).toBe("/synthetic-tmpdir-test/nimbus-gateway.sock");
+  });
+
+  // Every case above SETS the env var it is about, so the `||` fallbacks — where
+  // the client actually looks on a machine with no XDG configuration, which is
+  // most of them — were never taken.
+
+  test("darwin falls back to /tmp when TMPDIR is unset", () => {
+    setPlatform("darwin");
+    delete process.env["TMPDIR"];
+    expect(getNimbusPaths().socketPath).toBe("/tmp/nimbus-gateway.sock");
+  });
+
+  test("linux falls back to the XDG defaults when the env vars are unset", () => {
+    setPlatform("linux");
+    delete process.env["XDG_CONFIG_HOME"];
+    delete process.env["XDG_DATA_HOME"];
+    const p = getNimbusPaths();
+    // joinPosix, so the separator is "/" whichever platform runs the test.
+    expect(p.configDir.endsWith("/.config/nimbus")).toBe(true);
+    expect(p.dataDir.endsWith("/.local/share/nimbus")).toBe(true);
+    expect(p.logDir.endsWith("/.local/share/nimbus/logs")).toBe(true);
+    expect(p.extensionsDir.endsWith("/.local/share/nimbus/extensions")).toBe(true);
+  });
+
+  test("linux falls back to the OS temp dir for the socket when XDG_RUNTIME_DIR is unset", () => {
+    setPlatform("linux");
+    delete process.env["XDG_RUNTIME_DIR"];
+    const p = getNimbusPaths();
+    expect(p.socketPath.startsWith(tmpdir())).toBe(true);
+    expect(p.socketPath.endsWith("/nimbus-gateway.sock")).toBe(true);
   });
 
   test("linux honors XDG_RUNTIME_DIR", () => {
