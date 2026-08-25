@@ -30,8 +30,11 @@ bun run build       # tsc → dist/ (JS + .d.ts + declaration maps) + bundled CJ
   another runtime dependency; if you need a helper, inline it.
 - **No `any`; TypeScript strict.** Use `unknown` for data crossing a boundary and
   narrow with a type guard. Biome enforces the rules in `biome.json`, including
-  `noExplicitAny` and `noConsole` in `src/` (`scripts/` and `test/` relax
-  `noConsole`).
+  `noExplicitAny` and `noConsole`. The relaxations are file-pattern scoped, not
+  directory scoped: `scripts/**` relaxes `noConsole`, and `**/*.test.ts` relaxes
+  `noConsole` + `noNonNullAssertion` wherever it lives. A helper under `test/`
+  that is not a `*.test.ts` — `test/_fake-ipc.ts`, `test/_socket-harness.ts` —
+  gets the full `src/` ruleset.
 - **Validate IPC results.** `IPCClient.call<T>()` casts wire data without checking
   it; public `NimbusClient` methods must validate the result through a guard in
   `src/validate.ts` (throws `IpcResponseError`) before returning.
@@ -45,12 +48,17 @@ bun run build       # tsc → dist/ (JS + .d.ts + declaration maps) + bundled CJ
 ## Relationship to other repos
 
 - [`Nimbus`](https://github.com/nimbus-agent/Nimbus) — the gateway/CLI monorepo;
-  the first-party consumer of this client (`packages/cli` depends on
-  `@nimbus-dev/client`).
+  the first-party consumer of this client. It pins `@nimbus-dev/client` at **two**
+  sites — `packages/cli/package.json` and the monorepo root `package.json` — and
+  both have to move together.
 - [`nimbus-sdk`](https://github.com/nimbus-agent/nimbus-sdk) — the sole runtime
   dependency. For local co-development against an unreleased sdk, run
   `bun run verify:sdk` (packs a sibling `../nimbus-sdk` and tests against it).
-  A subsequent `bun install` restores the published sdk.
+  It restores `package.json` + `bun.lock` and reinstalls the published sdk itself,
+  in a `finally` — every path that rewrote them is covered, and the paths that bail
+  earlier (no sibling checkout, a failed sdk build or pack) never touched them. If
+  that reinstall fails it says so, and a manual `bun install` is then what puts
+  `node_modules` back.
 
 ## Questions
 

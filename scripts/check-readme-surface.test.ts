@@ -73,3 +73,51 @@ test("README documents every public NimbusClientLike member", () => {
   );
   expect(undocumented).toEqual([]);
 });
+
+/**
+ * Method names backticked inside the README's `| Namespace | Methods |` table.
+ *
+ * Scoped to that table rather than the whole document, because the rest of the README
+ * backticks type names, options and keywords (`IpcResponseError`, `AskStreamHandle`,
+ * `import`) that are correctly not interface members — a document-wide scan could not
+ * tell a stale method from a documented type. Inside the Methods column every backticked
+ * token is a member name, which is what makes the reverse check below decidable.
+ */
+function namespaceTableMethods(): string[] {
+  const lines = readFileSync(join(ROOT, "README.md"), "utf8").split("\n");
+  const header = lines.findIndex((l) => l.startsWith("| Namespace | Methods |"));
+  if (header === -1) throw new Error("README namespace table header not found");
+  const names: string[] = [];
+  // +2 skips the header and the `| --- | --- |` separator.
+  for (let i = header + 2; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined || !line.startsWith("|")) break;
+    const methodsCell = line.split("|")[2];
+    if (methodsCell === undefined) continue;
+    for (const m of methodsCell.matchAll(/`([A-Za-z][A-Za-z0-9_]*)`/g)) {
+      const name = m[1];
+      if (name !== undefined) names.push(name);
+    }
+  }
+  return names;
+}
+
+test("the namespace table scan finds a whole table, not a fragment", () => {
+  // Same anti-vacuity floor as above, and for the same reason: a row-shaped scan fails
+  // by matching nothing. Well below the real count on purpose — it guards the SCANNER,
+  // so it must not need editing every time a method is documented.
+  expect(namespaceTableMethods().length).toBeGreaterThan(40);
+});
+
+test("the README namespace table names no method the interface has dropped", () => {
+  // The reverse of the guard above, and the direction that one structurally cannot see.
+  // A REMOVED method keeps that guard green — every member that still exists is still
+  // documented — while the README goes on advertising one that does not, and the first
+  // report is a consumer whose code will not compile. Shrinking is not hypothetical in
+  // this package: 0.16.0 had to loosen a validator because the gateway REMOVED a field
+  // 0.15.x checked strictly (`tier`; see `readCoverageVector` in `src/validate.ts`). A
+  // method that goes the same way leaves a row here pointing at nothing.
+  const members = new Set(interfaceMembers());
+  const stale = [...new Set(namespaceTableMethods())].filter((n) => !members.has(n)).sort();
+  expect(stale).toEqual([]);
+});
