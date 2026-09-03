@@ -32,6 +32,15 @@ test("package identity is standalone nimbus-client", () => {
   // used to be `toBe("^1.6.0")`, an exact match, so every Dependabot bump of the
   // SDK failed here — the sibling test below warns against exactly that literal,
   // and this one did it anyway.
+  //
+  // So the 1.6.0 here and the higher range in package.json are NOT a disagreement
+  // to reconcile; they answer different questions. This is the oldest SDK the
+  // client's code still works against, established feature by feature above.
+  // package.json carries what we currently depend on, which tracks the gateway's
+  // pin and moves with Dependabot. Collapsing the two would mean re-pinning this
+  // literal on every bump — the failure this test was just rewritten to stop.
+  // Raise this number only when the client starts using an API added after 1.6.0,
+  // and extend the paragraph above with the reason when you do.
   expect(caretFloor(pkg.dependencies["@nimbus-dev/sdk"])).toBeGreaterThanOrEqual(
     caretFloor("^1.6.0"),
   );
