@@ -176,6 +176,22 @@ describe("MockClient", () => {
     expect(r[0]?.name).toBe("Plan");
   });
 
+  test("searchRankedWithRetrieval reports a complete search by default and the fixture when set", async () => {
+    expect(await new MockClient().searchRankedWithRetrieval()).toEqual({
+      items: [],
+      retrieval: { vectorRanked: true, reason: null, partial: null, backfill: null },
+      notes: [],
+    });
+    const degraded = { vectorRanked: false, reason: "warming", partial: null, backfill: null };
+    const c = new MockClient({ rankedRetrieval: degraded, rankedNotes: ["model still loading"] });
+    const r = await c.searchRankedWithRetrieval({ name: "x" });
+    expect(r.retrieval).toEqual(degraded);
+    expect(r.notes).toEqual(["model still loading"]);
+    // `null` is a real fixture value (an old Gateway), not "use the default".
+    const old = await new MockClient({ rankedRetrieval: null }).searchRankedWithRetrieval();
+    expect(old.retrieval).toBeNull();
+  });
+
   test("agentsExpert returns the configured fixture", async () => {
     const brief = {
       agentVersion: 1 as const,

@@ -95,6 +95,76 @@ describe("NimbusClient method dispatch", () => {
     expect(out).toEqual([row]);
   });
 
+  describe("searchRankedWithRetrieval (nimbus-client#86)", () => {
+    const row = {
+      id: "x",
+      service: "drive",
+      itemType: "file",
+      name: "x",
+      score: 1,
+      indexPrimaryKey: "pk-x",
+      indexedType: "file",
+    };
+
+    test("sends envelope: true with the same params and returns items + retrieval + notes", async () => {
+      const retrieval = {
+        vectorRanked: false,
+        reason: "timeout",
+        partial: null,
+        backfill: { done: 8400, total: 51600 },
+      };
+      const notes = ["semantic ranking unavailable (the query embedding timed out)"];
+      const ipc = new FakeIpc([{ items: [row], retrieval, notes }]);
+      const out = await makeClient(ipc).searchRankedWithRetrieval({ name: "plan", limit: 5 });
+      expect(ipc.calls[0]?.method).toBe("index.searchRanked");
+      expect(ipc.calls[0]?.params).toMatchObject({ name: "plan", limit: 5, envelope: true });
+      expect(out).toEqual({ items: [row], retrieval, notes });
+    });
+
+    test("an older Gateway that ignores the flag answers a bare array: retrieval is unknown, not complete", async () => {
+      const ipc = new FakeIpc([[row]]);
+      const out = await makeClient(ipc).searchRankedWithRetrieval({ name: "plan" });
+      expect(out).toEqual({ items: [row], retrieval: null, notes: [] });
+    });
+
+    test("an unrecognised reason from a newer Gateway still validates", async () => {
+      const retrieval = {
+        vectorRanked: false,
+        reason: "some_future_reason",
+        partial: null,
+        backfill: null,
+      };
+      const ipc = new FakeIpc([{ items: [], retrieval, notes: [] }]);
+      const out = await makeClient(ipc).searchRankedWithRetrieval();
+      expect(out.retrieval?.reason).toBe("some_future_reason");
+    });
+
+    test("a malformed envelope is rejected at the boundary", async () => {
+      const bad = [
+        { items: [row], retrieval: { vectorRanked: "yes" }, notes: [] },
+        {
+          items: [row],
+          retrieval: { vectorRanked: true, backfill: { done: "1", total: 2 } },
+          notes: [],
+        },
+        { items: [row], retrieval: { vectorRanked: true }, notes: [42] },
+        { items: "not-an-array", retrieval: { vectorRanked: true }, notes: [] },
+      ];
+      for (const response of bad) {
+        const ipc = new FakeIpc([response]);
+        await expect(makeClient(ipc).searchRankedWithRetrieval()).rejects.toBeInstanceOf(
+          IpcResponseError,
+        );
+      }
+    });
+
+    test("searchRanked itself is unchanged: it never sends the envelope flag", async () => {
+      const ipc = new FakeIpc([[row]]);
+      await makeClient(ipc).searchRanked({ name: "plan" });
+      expect(ipc.calls[0]?.params).not.toHaveProperty("envelope");
+    });
+  });
+
   test("searchRanked tolerates being called with no params", async () => {
     const ipc = new FakeIpc([[]]);
     const out = await makeClient(ipc).searchRanked();

@@ -71,6 +71,8 @@ import type {
   NimbusClientLike,
   RankedSearchItem,
   RankedSearchParams,
+  RankedSearchWithRetrieval,
+  SearchRetrieval,
   SessionAppendParams,
   SessionClearParams,
   SessionClearResult,
@@ -102,6 +104,10 @@ import type {
 export type MockClientFixtures = {
   items?: IndexedItem[];
   rankedItems?: RankedSearchItem[];
+  /** The `retrieval` block `searchRankedWithRetrieval` reports. Default: a complete vector-ranked search. */
+  rankedRetrieval?: SearchRetrieval | null;
+  /** The notes `searchRankedWithRetrieval` reports. Default: none. */
+  rankedNotes?: string[];
   streamTokens?: string[];
   reply?: string;
   sqlRows?: Record<string, unknown>[];
@@ -301,6 +307,20 @@ export class MockClient implements NimbusClientLike {
 
   async searchRanked(_params?: RankedSearchParams): Promise<RankedSearchItem[]> {
     return this.fixtures.rankedItems ?? [];
+  }
+
+  async searchRankedWithRetrieval(
+    _params?: RankedSearchParams,
+  ): Promise<RankedSearchWithRetrieval> {
+    const retrieval =
+      this.fixtures.rankedRetrieval === undefined
+        ? { vectorRanked: true, reason: null, partial: null, backfill: null }
+        : this.fixtures.rankedRetrieval;
+    return {
+      items: this.fixtures.rankedItems ?? [],
+      retrieval,
+      notes: this.fixtures.rankedNotes ?? [],
+    };
   }
 
   async querySql(_sql: string): Promise<{ rows: Record<string, unknown>[] }> {

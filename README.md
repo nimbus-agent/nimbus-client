@@ -52,7 +52,7 @@ covers these gateway namespaces:
 | Namespace | Methods |
 | --- | --- |
 | Ask / agents | `agentInvoke`, the nine briefs (`agentsExpert`, `agentsImpact`, `agentsCatchup`, `agentsGhost`, `agentsConflicts`, `agentsHuddle`, `agentsJanitor`, `agentsPreflight`, `agentsWhy`) + `agentsWhyPeek` |
-| Index & search | `queryItems`, `searchRanked`, `querySql` |
+| Index & search | `queryItems`, `searchRanked`, `searchRankedWithRetrieval`, `querySql` |
 | Sessions | `getSessionTranscript`, `sessionAppend`, `sessionRecall`, `sessionList`, `sessionClear` |
 | Audit | `auditList`, `auditVerify`, `auditGetSummary`, `auditToolCalls` |
 | Egress | `egressHead`, `egressList`, `egressVerify`, `egressProveWindow` |
