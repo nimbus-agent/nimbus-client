@@ -55,7 +55,9 @@ import type {
   PreflightGap,
   PrFinding,
   RankedSearchItem,
+  RankedSearchWithRetrieval,
   SandboxDiag,
+  SearchRetrieval,
   SessionClearResult,
   SessionListEntry,
   SessionListResult,
@@ -294,6 +296,47 @@ export function validateRankedItems(method: string, v: unknown): RankedSearchIte
     str(method, o, "indexedType");
     return o as unknown as RankedSearchItem;
   });
+}
+
+function validateSearchRetrieval(method: string, v: unknown): SearchRetrieval {
+  const o = record(method, v);
+  const backfillRaw = o["backfill"];
+  let backfill: SearchRetrieval["backfill"] = null;
+  if (backfillRaw !== null && backfillRaw !== undefined) {
+    const b = record(method, backfillRaw);
+    backfill = { done: num(method, b, "done"), total: num(method, b, "total") };
+  }
+  // `reason` and `partial` are validated as strings, not against the known values: a newer Gateway
+  // may add one, and rejecting the whole response for it would hide the results as well.
+  return {
+    vectorRanked: bool(method, o, "vectorRanked"),
+    reason: o["reason"] === undefined ? null : nullableStr(method, o, "reason"),
+    partial: o["partial"] === undefined ? null : nullableStr(method, o, "partial"),
+    backfill,
+  };
+}
+
+/**
+ * `index.searchRanked` with `envelope: true`. Also accepts the bare array an older Gateway returns
+ * when it ignores the flag, reporting `retrieval: null` — unknown, never "complete".
+ */
+export function validateRankedSearchWithRetrieval(
+  method: string,
+  v: unknown,
+): RankedSearchWithRetrieval {
+  if (Array.isArray(v)) {
+    return { items: validateRankedItems(method, v), retrieval: null, notes: [] };
+  }
+  const o = record(method, v);
+  const notes = arr(method, o["notes"] ?? []).map((n) => {
+    if (typeof n !== "string") throw new IpcResponseError(method, `"notes" must be strings`);
+    return n;
+  });
+  return {
+    items: validateRankedItems(method, o["items"]),
+    retrieval: validateSearchRetrieval(method, o["retrieval"]),
+    notes,
+  };
 }
 
 export function validateQuerySql(method: string, v: unknown): { rows: Record<string, unknown>[] } {
