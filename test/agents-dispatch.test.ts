@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { AGENT_KIND, AGENT_NAMES, type AgentBrief, type AgentName } from "@nimbus-dev/sdk";
+import { AGENT_KIND, type AgentBrief } from "@nimbus-dev/sdk";
 
+import { SUPPORTED_AGENT_NAMES, type SupportedAgentName } from "../src/agents.ts";
 import { MockClient } from "../src/mock-client.ts";
 import type { NimbusClientLike } from "../src/nimbus-client.ts";
 import { FakeIpc, makeClient } from "./_fake-ipc.ts";
@@ -22,7 +23,7 @@ import golden from "./fixtures/agent-briefs.json" with { type: "json" };
  */
 
 const fixtures = golden as Record<
-  AgentName,
+  SupportedAgentName,
   { sessionId: string; brief: string; findings: AgentBrief }
 >;
 
@@ -40,7 +41,7 @@ const PARAMS = {
 } as const;
 
 /** Invoke each public method by name, so a mis-wired delegation shows up here. */
-const CALL: Record<AgentName, (c: NimbusClientLike) => Promise<AgentBrief>> = {
+const CALL: Record<SupportedAgentName, (c: NimbusClientLike) => Promise<AgentBrief>> = {
   expert: (c) => c.agentsExpert(PARAMS.expert),
   impact: (c) => c.agentsImpact(PARAMS.impact),
   catchup: (c) => c.agentsCatchup(PARAMS.catchup),
@@ -53,7 +54,7 @@ const CALL: Record<AgentName, (c: NimbusClientLike) => Promise<AgentBrief>> = {
 };
 
 describe("every agentsX method dispatches to its own agent", () => {
-  for (const agent of AGENT_NAMES) {
+  for (const agent of SUPPORTED_AGENT_NAMES) {
     describe(agent, () => {
       test("calls agents.<name> and resolves that agent's brief", async () => {
         const sessionId = `sess-${agent}`;

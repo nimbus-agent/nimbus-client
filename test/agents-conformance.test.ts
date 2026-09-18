@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { AGENT_KIND, AGENT_NAMES, BRIEF_GUARDS } from "@nimbus-dev/sdk";
-import { parseBriefReady } from "../src/agents.ts";
+import { parseBriefReady, SUPPORTED_AGENT_NAMES } from "../src/agents.ts";
 import golden from "./fixtures/agent-briefs.json" with { type: "json" };
 
 /**
@@ -18,11 +18,28 @@ import golden from "./fixtures/agent-briefs.json" with { type: "json" };
 const fixtures = golden as Record<string, { sessionId: string; brief: string; findings: unknown }>;
 
 describe("agents.* briefReady conformance", () => {
-  test("the fixture covers all nine agents", () => {
-    expect(Object.keys(fixtures).sort()).toEqual([...AGENT_NAMES].sort());
+  test("the fixture covers every agent this client implements", () => {
+    expect(Object.keys(fixtures).sort()).toEqual([...SUPPORTED_AGENT_NAMES].sort());
   });
 
-  for (const agent of AGENT_NAMES) {
+  test("every supported agent is still a name the SDK knows", () => {
+    // The direction that would break callers: an agent this client dispatches disappearing from the
+    // gateway's roster. The reverse — the SDK knowing agents this client has no method for — is
+    // expected, and asserted below rather than treated as a failure.
+    const known = new Set<string>(AGENT_NAMES);
+    expect(SUPPORTED_AGENT_NAMES.filter((a) => !known.has(a))).toEqual([]);
+  });
+
+  test("agents the SDK knows but this client does not implement are named, not silent", () => {
+    // SDK 2.0.0 added `decisions`, `glossary` and `ownership`, and this client has no method for
+    // them, so they are outside the conformance loop below. Naming them here keeps the gap a stated
+    // fact rather than nine passing tests that read like full coverage.
+    const supported = new Set<string>(SUPPORTED_AGENT_NAMES);
+    const unimplemented = [...AGENT_NAMES].filter((a) => !supported.has(a)).sort();
+    expect(unimplemented).toEqual(["decisions", "glossary", "ownership"]);
+  });
+
+  for (const agent of SUPPORTED_AGENT_NAMES) {
     describe(agent, () => {
       test("the golden payload parses", () => {
         expect(parseBriefReady(agent, fixtures[agent])).not.toBeNull();
