@@ -1,5 +1,4 @@
 import type {
-  AgentName,
   BriefFor,
   CatchupBrief,
   ConflictBrief,
@@ -23,6 +22,7 @@ import type {
   ImpactParams,
   JanitorParams,
   PreflightParams,
+  SupportedAgentName,
   WhyParams,
 } from "./agents.js";
 import type {
@@ -218,14 +218,14 @@ export class MockClient implements NimbusClientLike {
     return { dispose: () => undefined };
   }
 
-  subscribeAgentBrief<A extends AgentName>(
+  subscribeAgentBrief<A extends SupportedAgentName>(
     _agent: A,
     _handler: (ev: AgentBriefEvent<A>) => void,
   ): { dispose(): void } {
     return { dispose: () => {} };
   }
 
-  private brief<A extends AgentName>(agent: A): Promise<BriefFor<A>> {
+  private brief<A extends SupportedAgentName>(agent: A): Promise<BriefFor<A>> {
     const fixture = this.fixtures.agentBriefs?.[agent];
     if (fixture === undefined) {
       return Promise.reject(new Error(`MockClient: no agentBriefs.${agent} fixture configured`));

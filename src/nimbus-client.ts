@@ -1,5 +1,4 @@
 import type {
-  AgentName,
   BriefFor,
   CatchupBrief,
   ConflictBrief,
@@ -30,6 +29,7 @@ import {
   type PreflightParams,
   parseBriefError,
   parseBriefReady,
+  type SupportedAgentName,
   type WhyParams,
 } from "./agents.js";
 import { createAskStream } from "./ask-stream.js";
@@ -1161,7 +1161,7 @@ export interface NimbusClientLike {
   subscribeConnectorConfigChanged(handler: (ev: ConnectorConfigChanged) => void): {
     dispose(): void;
   };
-  subscribeAgentBrief<A extends AgentName>(
+  subscribeAgentBrief<A extends SupportedAgentName>(
     agent: A,
     handler: (ev: AgentBriefEvent<A>) => void,
   ): { dispose(): void };
@@ -1335,7 +1335,7 @@ export class NimbusClient implements NimbusClientLike {
    * removes both. Generic over the agent NAME so a ninth agent costs one
    * `AGENT_NAMES` entry rather than a new method.
    */
-  subscribeAgentBrief<A extends AgentName>(
+  subscribeAgentBrief<A extends SupportedAgentName>(
     agent: A,
     handler: (ev: AgentBriefEvent<A>) => void,
   ): { dispose(): void } {
@@ -1368,7 +1368,7 @@ export class NimbusClient implements NimbusClientLike {
    * drain the buffer. Without the buffer a fast agent's notification is
    * dropped; without the sessionId filter two concurrent runs swap results.
    */
-  private async runAgent<A extends AgentName>(
+  private async runAgent<A extends SupportedAgentName>(
     agent: A,
     params: AgentParamsFor<A>,
     opts?: { timeoutMs?: number },
