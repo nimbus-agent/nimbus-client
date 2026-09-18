@@ -1,5 +1,4 @@
 import type {
-  AgentName,
   BriefFor,
   CatchupBrief,
   ConflictBrief,
@@ -30,6 +29,7 @@ import {
   type PreflightParams,
   parseBriefError,
   parseBriefReady,
+  type SupportedAgentName,
   type WhyParams,
 } from "./agents.js";
 import { createAskStream } from "./ask-stream.js";
@@ -71,6 +71,7 @@ import {
   validateQueryItems,
   validateQuerySql,
   validateRankedItems,
+  validateRankedSearchWithRetrieval,
   validateSessionClear,
   validateSessionList,
   validateSessionRecall,
@@ -131,6 +132,47 @@ export type RankedSearchItem = NimbusItem & {
   semanticSnippet?: string;
   bm25Rank?: number | null;
   vectorRank?: number | null;
+};
+
+/**
+ * Why a ranked search was NOT vector-ranked, as the Gateway reports it. Typed as the known values plus
+ * `string`: a newer Gateway may add a reason, and an unrecognised one must not fail validation.
+ */
+export type SearchRetrievalReason =
+  | "no_query"
+  | "semantic_off"
+  | "no_embedding_runtime"
+  | "vec_unavailable"
+  | "warming"
+  | "timeout"
+  | "unavailable"
+  | (string & {});
+
+/** What a ranked search actually did: the Gateway's `retrieval` block. */
+export type SearchRetrieval = {
+  /** True only when a query vector was actually used for ranking. */
+  vectorRanked: boolean;
+  /** Set when `vectorRanked` is false. */
+  reason: SearchRetrievalReason | null;
+  /** A hybrid result ranked on one dimension only, because the other half timed out. */
+  partial: "local_timeout" | "remote_timeout" | (string & {}) | null;
+  /**
+   * Progress of the background embedding pass running NOW (items processed this pass, of those that
+   * had no vector when it started) — not index coverage. Present only while a pass runs.
+   */
+  backfill: { done: number; total: number } | null;
+};
+
+/** Result of {@link NimbusClient.searchRankedWithRetrieval}. */
+export type RankedSearchWithRetrieval = {
+  items: RankedSearchItem[];
+  /**
+   * `null` when the Gateway predates the retrieval disclosure and answered a bare array: nothing is
+   * known about how the results were ranked, which is not the same as a complete result.
+   */
+  retrieval: SearchRetrieval | null;
+  /** The Gateway's own plain-language notes for `retrieval`; empty when there is nothing to disclose. */
+  notes: string[];
 };
 
 export type SessionTranscript = {
@@ -1119,7 +1161,7 @@ export interface NimbusClientLike {
   subscribeConnectorConfigChanged(handler: (ev: ConnectorConfigChanged) => void): {
     dispose(): void;
   };
-  subscribeAgentBrief<A extends AgentName>(
+  subscribeAgentBrief<A extends SupportedAgentName>(
     agent: A,
     handler: (ev: AgentBriefEvent<A>) => void,
   ): { dispose(): void };
@@ -1139,6 +1181,7 @@ export interface NimbusClientLike {
     limit?: number;
   }): Promise<{ items: IndexedItem[]; meta: { limit: number; total: number } }>;
   searchRanked(params?: RankedSearchParams): Promise<RankedSearchItem[]>;
+  searchRankedWithRetrieval(params?: RankedSearchParams): Promise<RankedSearchWithRetrieval>;
   querySql(sql: string): Promise<{ rows: Record<string, unknown>[] }>;
   auditList(limit?: number): Promise<unknown[]>;
   auditVerify(params?: AuditVerifyParams): Promise<AuditVerifyResult>;
@@ -1292,7 +1335,7 @@ export class NimbusClient implements NimbusClientLike {
    * removes both. Generic over the agent NAME so a ninth agent costs one
    * `AGENT_NAMES` entry rather than a new method.
    */
-  subscribeAgentBrief<A extends AgentName>(
+  subscribeAgentBrief<A extends SupportedAgentName>(
     agent: A,
     handler: (ev: AgentBriefEvent<A>) => void,
   ): { dispose(): void } {
@@ -1325,7 +1368,7 @@ export class NimbusClient implements NimbusClientLike {
    * drain the buffer. Without the buffer a fast agent's notification is
    * dropped; without the sessionId filter two concurrent runs swap results.
    */
-  private async runAgent<A extends AgentName>(
+  private async runAgent<A extends SupportedAgentName>(
     agent: A,
     params: AgentParamsFor<A>,
     opts?: { timeoutMs?: number },
@@ -1506,6 +1549,30 @@ export class NimbusClient implements NimbusClientLike {
       contextChunks: params.contextChunks,
     });
     return validateRankedItems("index.searchRanked", raw);
+  }
+
+  /**
+   * {@link searchRanked} plus the Gateway's disclosure of what the search actually did: whether it was
+   * vector-ranked, why not (the model still loading, a timed-out query embedding, embeddings off, …),
+   * and whether a background embedding pass may make the results incomplete. Use it wherever a result
+   * reaches a person, so a keyword-only or mid-backfill answer is not presented as complete.
+   *
+   * A Gateway that predates the disclosure ignores the `envelope` flag and answers a bare array. That
+   * is accepted and reported as `retrieval: null`, not rejected.
+   */
+  async searchRankedWithRetrieval(
+    params: RankedSearchParams = {},
+  ): Promise<RankedSearchWithRetrieval> {
+    const raw = await this.ipc.call("index.searchRanked", {
+      name: params.name,
+      service: params.service,
+      itemType: params.itemType,
+      limit: params.limit,
+      semantic: params.semantic,
+      contextChunks: params.contextChunks,
+      envelope: true,
+    });
+    return validateRankedSearchWithRetrieval("index.searchRanked", raw);
   }
 
   async querySql(sql: string): Promise<{ rows: Record<string, unknown>[] }> {

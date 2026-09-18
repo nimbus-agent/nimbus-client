@@ -2,6 +2,18 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.18.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.17.3...client-v0.18.0) (2026-09-18)
+
+
+### Features
+
+* **search:** add searchRankedWithRetrieval for the retrieval disclosure envelope ([#90](https://github.com/nimbus-agent/nimbus-client/issues/90)) ([2f11d3d](https://github.com/nimbus-agent/nimbus-client/commit/2f11d3d1aff32651320f859e7926bff55b392948))
+
+
+### Bug Fixes
+
+* **test:** assert the SDK floor instead of an exact pin ([#81](https://github.com/nimbus-agent/nimbus-client/issues/81)) ([cd4baf0](https://github.com/nimbus-agent/nimbus-client/commit/cd4baf04552722db6c65ffdb966244ae9d2a18d4))
+
 ## [0.17.3](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.17.2...client-v0.17.3) (2026-08-16)
 
 

@@ -1,5 +1,4 @@
 import type {
-  AgentName,
   BriefFor,
   CatchupBrief,
   ConflictBrief,
@@ -23,6 +22,7 @@ import type {
   ImpactParams,
   JanitorParams,
   PreflightParams,
+  SupportedAgentName,
   WhyParams,
 } from "./agents.js";
 import type {
@@ -71,6 +71,8 @@ import type {
   NimbusClientLike,
   RankedSearchItem,
   RankedSearchParams,
+  RankedSearchWithRetrieval,
+  SearchRetrieval,
   SessionAppendParams,
   SessionClearParams,
   SessionClearResult,
@@ -102,6 +104,10 @@ import type {
 export type MockClientFixtures = {
   items?: IndexedItem[];
   rankedItems?: RankedSearchItem[];
+  /** The `retrieval` block `searchRankedWithRetrieval` reports. Default: a complete vector-ranked search. */
+  rankedRetrieval?: SearchRetrieval | null;
+  /** The notes `searchRankedWithRetrieval` reports. Default: none. */
+  rankedNotes?: string[];
   streamTokens?: string[];
   reply?: string;
   sqlRows?: Record<string, unknown>[];
@@ -212,14 +218,14 @@ export class MockClient implements NimbusClientLike {
     return { dispose: () => undefined };
   }
 
-  subscribeAgentBrief<A extends AgentName>(
+  subscribeAgentBrief<A extends SupportedAgentName>(
     _agent: A,
     _handler: (ev: AgentBriefEvent<A>) => void,
   ): { dispose(): void } {
     return { dispose: () => {} };
   }
 
-  private brief<A extends AgentName>(agent: A): Promise<BriefFor<A>> {
+  private brief<A extends SupportedAgentName>(agent: A): Promise<BriefFor<A>> {
     const fixture = this.fixtures.agentBriefs?.[agent];
     if (fixture === undefined) {
       return Promise.reject(new Error(`MockClient: no agentBriefs.${agent} fixture configured`));
@@ -301,6 +307,20 @@ export class MockClient implements NimbusClientLike {
 
   async searchRanked(_params?: RankedSearchParams): Promise<RankedSearchItem[]> {
     return this.fixtures.rankedItems ?? [];
+  }
+
+  async searchRankedWithRetrieval(
+    _params?: RankedSearchParams,
+  ): Promise<RankedSearchWithRetrieval> {
+    const retrieval =
+      this.fixtures.rankedRetrieval === undefined
+        ? { vectorRanked: true, reason: null, partial: null, backfill: null }
+        : this.fixtures.rankedRetrieval;
+    return {
+      items: this.fixtures.rankedItems ?? [],
+      retrieval,
+      notes: this.fixtures.rankedNotes ?? [],
+    };
   }
 
   async querySql(_sql: string): Promise<{ rows: Record<string, unknown>[] }> {
