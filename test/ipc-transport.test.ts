@@ -370,7 +370,6 @@ describe("IPCClient", () => {
     // Use a custom server that replies with a numeric id
     await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
-      void req;
       // Reply with a numeric id — exercises the number arm of idKey in dispatchRpcLine
       // We send the numeric reply BEFORE the real one to exercise the number branch path
       // (the numeric id won't match the UUID-based pending — it will hit the "pend undefined" branch)
