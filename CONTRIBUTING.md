@@ -124,7 +124,11 @@ to respect:
   comment (`@<sha> # v7.0.1`); move both. The steps of a multi-step action move
   as one: `github/codeql-action/init` and `github/codeql-action/analyze` in
   `codeql.yml` must share a SHA, or CodeQL hard-fails with "Loaded a
-  configuration file for version X, but running version Y".
+  configuration file for version X, but running version Y". The one exception
+  to the version comment is the org's own
+  `nimbus-agent/.github/actions/verify-npm-provenance` in `release.yml`: that
+  repository publishes no releases or tags, so it is pinned to a commit on its
+  `main` with no comment, and an update moves it to `main`'s tip.
 
 Should Dependabot ever come back, restore `.github/dependabot.yml` and the
 Dependabot skip in `.github/workflows/cla.yml` from history; both were removed
