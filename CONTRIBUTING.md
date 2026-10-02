@@ -25,9 +25,10 @@ bun run build       # tsc → dist/ (JS + .d.ts + declaration maps) + bundled CJ
 
 - **One runtime dependency.** `@nimbus-dev/client` declares a single runtime
   dependency, [`@nimbus-dev/sdk`](https://github.com/nimbus-agent/nimbus-sdk),
-  consumed as the published `^1.6.0`. The floor is asserted in
-  `scripts/check-package-identity.test.ts` — bump both together. Do not add
-  another runtime dependency; if you need a helper, inline it.
+  consumed as a caret range on the published package. Do not add another
+  runtime dependency; if you need a helper, inline it. How that range moves, and
+  why the floor asserted in `scripts/check-package-identity.test.ts` usually
+  does not move with it, is under [Updating dependencies](#updating-dependencies).
 - **No `any`; TypeScript strict.** Use `unknown` for data crossing a boundary and
   narrow with a type guard. Biome enforces the rules in `biome.json`, including
   `noExplicitAny` and `noConsole`. The relaxations are file-pattern scoped, not
@@ -92,6 +93,44 @@ public thread on either.
   CI then additionally smoke-tests the CJS bundle under Node and asserts no
   build-machine path is baked into `dist/index.cjs`; SonarCloud runs
   `bun run test:coverage` as a blocking gate.
+
+## Updating dependencies
+
+A maintainer updates dependencies in periodic bulk PRs: `bun outdated`, edit the
+ranges in `package.json`, `bun install`, then the full checks from
+[Pull requests](#pull-requests), build first. Dependabot is retired here (there
+is no `.github/dependabot.yml`, and its security-update PRs are off in the
+repository settings), but its **alerts** are still on: a vulnerable dependency
+still shows up in the Security tab, and the answer to one is a bulk PR.
+
+What the retired `.github/dependabot.yml` encoded, and a bulk update still has
+to respect:
+
+- **Commit `bun.lock` with `package.json`.** CI installs with
+  `bun install --frozen-lockfile`, which refuses a lockfile that disagrees with
+  `package.json` ("lockfile had changes, but lockfile is frozen"). A range
+  edited without a fresh `bun install` is the usual cause.
+- **`@nimbus-dev/sdk` gets its own PR; dev dependencies can share one.** The
+  sdk is the one runtime dependency, its range ships in the published
+  `package.json`, and `src/index.ts` re-exports its types, so moving it can
+  change this package's exported types (sdk 2.0.0 widened the re-exported
+  `AgentName`). That makes it semver-relevant here; see the *Public surface*
+  note above. Keep it a caret range on the published package, never
+  `workspace:*`. The `1.6.0` asserted in `scripts/check-package-identity.test.ts`
+  is a floor, the oldest sdk this code works against, not a copy of the range:
+  a bump leaves it alone. Raise it only when the client starts using a newer
+  sdk API, and record why beside it.
+- **GitHub Actions are pinned by commit SHA** with the version in a trailing
+  comment (`@<sha> # v7.0.1`); move both. The steps of a multi-step action move
+  as one: `github/codeql-action/init` and `github/codeql-action/analyze` in
+  `codeql.yml` must share a SHA, or CodeQL hard-fails with "Loaded a
+  configuration file for version X, but running version Y".
+
+Should Dependabot ever come back, restore `.github/dependabot.yml` and the
+Dependabot skip in `.github/workflows/cla.yml` from history; both were removed
+in the same commit. Use the `bun` package-ecosystem, not `npm`: the npm one
+does not understand `bun.lock`, bumps `package.json` alone, and every PR it
+opens fails the frozen-lockfile install.
 
 ## Releases
 

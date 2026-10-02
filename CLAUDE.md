@@ -12,9 +12,11 @@ gateway (`nimbus start`) without hand-rolling the IPC contract. Published to npm
 
 - **Runtime:** Bun v1.2+ · **Language:** TypeScript 7.x strict · **Linter:** Biome
 - **Single runtime dependency:** [`@nimbus-dev/sdk`](https://github.com/nimbus-agent/nimbus-sdk),
-  pinned to the published `^1.6.0` (never `workspace:*` in this standalone repo).
-  The floor lives in `scripts/check-package-identity.test.ts` — that assertion is
-  the source of truth; bump it and `package.json` together.
+  consumed as a caret range on the published package (never `workspace:*` in this
+  standalone repo). `scripts/check-package-identity.test.ts` asserts the oldest sdk
+  the client works against as a FLOOR, not a copy of the range: a routine bump of
+  the `package.json` range leaves it alone; raise it only when the client starts
+  using a newer sdk API, and record why beside it.
 - **No `any`** — use `unknown` for external data; strict mode is non-negotiable.
 
 ## Commands
@@ -58,3 +60,7 @@ bun run verify:sdk     # pack a sibling ../nimbus-sdk and test against it (pre-r
   `*.test.ts` file under `src/` gets the relaxations.
 - GitHub-primary (`github.com/nimbus-agent/nimbus-client`); the GitLab mirror is warm-standby only.
 - Releases: Conventional Commits → release-please → `npm publish --provenance` via OIDC (no npm token).
+- Dependencies: Dependabot is retired (no `.github/dependabot.yml`; alerts stay on).
+  A maintainer updates dependencies in periodic bulk PRs; `CONTRIBUTING.md`
+  § Updating dependencies has the steps and the rules a bulk update must respect.
+  Do not re-add a Dependabot config on your own.
