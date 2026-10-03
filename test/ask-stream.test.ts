@@ -335,6 +335,39 @@ describe("askStream", () => {
     ]);
   });
 
+  test("a start rejection that is not an Error is reported by its string form", async () => {
+    // `IPCClient` itself only ever rejects with an Error; the stream catches
+    // `unknown`, and this pins what it reports for anything else.
+    class RejectsWithAString extends FakeIpc {
+      override async call(method: string, params: unknown): Promise<unknown> {
+        this.calls.push({ method, params });
+        throw "socket reset by peer";
+      }
+    }
+    const handle = createAskStream(asIpc(new RejectsWithAString()), "hello");
+    const events: StreamEvent[] = [];
+    for await (const ev of handle) events.push(ev);
+    expect(events).toEqual([
+      { type: "error", code: "stream_start_failed", message: "socket reset by peer" },
+    ]);
+  });
+
+  test("breaking out after a failed start sends no cancelStream: there is no stream to cancel", async () => {
+    // The failed start is the first event a consumer sees, before any streamId
+    // exists, so a consumer that stops reading there runs return() with none.
+    ipc.failMethod("engine.askStream", "transport down");
+    const handle = createAskStream(asIpc(ipc), "hello");
+    const events: StreamEvent[] = [];
+    for await (const ev of handle) {
+      events.push(ev);
+      break;
+    }
+    expect(events).toEqual([
+      { type: "error", code: "stream_start_failed", message: "transport down" },
+    ]);
+    expect(ipc.calls.map((c) => c.method)).toEqual(["engine.askStream"]);
+  });
+
   // ── early notifications (before streamId resolves) are replayed ───────────
 
   test("tokens emitted before the streamId resolves are buffered and replayed", async () => {
@@ -650,5 +683,42 @@ describe("askStream — unexpected transport close", () => {
   test("registers exactly one close handler per stream", async () => {
     await startAndDrain(ipc);
     expect(ipc.closeHandlers.size).toBe(1);
+  });
+});
+
+/**
+ * `engine.cancelStream` is best effort. By the time a consumer cancels, the gateway
+ * may already have finished the stream, forgotten it, or be going away — and the
+ * consumer's stream must still end locally, without a rejection it never asked for.
+ * Every other cancel test answers `cancelStream` successfully, so the path that
+ * absorbs its failure was never taken.
+ */
+describe("askStream — the gateway rejects engine.cancelStream", () => {
+  const cancelStreamParams = (): unknown[] =>
+    ipc.calls.filter((c) => c.method === "engine.cancelStream").map((c) => c.params);
+
+  test("cancel() still resolves and ends the stream", async () => {
+    ipc.failMethod("engine.cancelStream", "unknown streamId");
+    const { handle, events, drain } = await startAndDrain(ipc);
+
+    await expect(handle.cancel()).resolves.toBeUndefined();
+    await drain;
+
+    expect(events).toEqual([]);
+    // Attempted with this stream's id: the failure was absorbed, not the call skipped.
+    expect(cancelStreamParams()).toEqual([{ streamId: DEFAULT_STREAM_ID }]);
+  });
+
+  test("breaking out of for-await still ends the stream, with no stray rejection", async () => {
+    // The iterator's return() fires cancelStream without awaiting it, so an
+    // unabsorbed rejection here would surface as an unhandled one, not a throw.
+    ipc.failMethod("engine.cancelStream", "unknown streamId");
+    const { events } = await startAndBreakAfterFirstToken(ipc);
+    // Let the fire-and-forget cancel settle inside this test.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(events).toEqual([{ type: "token", text: "first" }]);
+    expect(cancelStreamParams()).toEqual([{ streamId: DEFAULT_STREAM_ID }]);
   });
 });

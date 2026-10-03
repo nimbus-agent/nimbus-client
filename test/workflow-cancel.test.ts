@@ -202,4 +202,20 @@ describe("workflowRunStream teardown", () => {
     ]);
     await handle.result;
   });
+
+  test("a failure that is not an Error still ends the stream, reported by its string form", async () => {
+    // The validator is injected, and nothing obliges it to throw an Error. Whatever
+    // it throws must still become the terminal event, not a stream left open.
+    const ipc = new FakeIpc([RUN_RESULT]);
+    const handle = createWorkflowRunStream(asIpc(ipc), { name: "x" }, () => {
+      throw "validator gave up";
+    });
+
+    const events: unknown[] = [];
+    for await (const ev of handle) events.push(ev);
+
+    expect(events).toEqual([{ type: "error", message: "validator gave up" }]);
+    await expect(handle.result).rejects.toBe("validator gave up");
+    expect(ipc.notifHandlers.get("agent.chunk")).toHaveLength(0);
+  });
 });

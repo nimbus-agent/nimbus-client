@@ -100,6 +100,25 @@ describe("every agentsX method dispatches to its own agent", () => {
     });
   }
 
+  test("the agents whose params are optional send {} when called with none", async () => {
+    // `catchup` and `huddle` are the two agents callable with no argument at all.
+    // An omitted argument must reach the wire as {}, exactly what a caller passing
+    // {} sends: `IPCClient.call` drops an undefined `params` member entirely.
+    const noArg = {
+      catchup: (c: NimbusClientLike) => c.agentsCatchup(),
+      huddle: (c: NimbusClientLike) => c.agentsHuddle(),
+    } as const;
+    for (const agent of ["catchup", "huddle"] as const) {
+      const sessionId = `sess-${agent}-noarg`;
+      const ipc = new FakeIpc([{ sessionId }]);
+      const pending = noArg[agent](makeClient(ipc));
+      ipc.emit(`${agent}.briefReady`, { ...fixtures[agent], sessionId });
+
+      expect((await pending).kind).toBe(AGENT_KIND[agent]);
+      expect(ipc.calls).toEqual([{ method: `agents.${agent}`, params: {} }]);
+    }
+  });
+
   test("MockClient.subscribeAgentBrief is an inert disposable", () => {
     const sub = new MockClient({}).subscribeAgentBrief("expert", () => {
       throw new Error("mock must never invoke the handler");

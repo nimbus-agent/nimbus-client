@@ -36,6 +36,31 @@ describe("subscribeAgentBrief", () => {
     expect(ipc.notifHandlers.get("expert.briefReady")).toHaveLength(0);
     expect(ipc.notifHandlers.get("expert.briefError")).toHaveLength(0);
   });
+
+  test("drops malformed brief payloads instead of handing them to the handler", () => {
+    const ipc = new FakeIpc();
+    const seen: unknown[] = [];
+    makeClient(ipc).subscribeAgentBrief("expert", (ev) => seen.push(ev));
+
+    // A notification has no caller to reject to: each of these must be inert,
+    // not delivered and not thrown into the transport's dispatch loop.
+    for (const bad of [null, "index empty", [], { sessionId: 7, error: "x" }, { sessionId: "s" }]) {
+      expect(() => ipc.emit("expert.briefError", bad)).not.toThrow();
+    }
+    for (const bad of [
+      null,
+      [{ sessionId: "s" }],
+      { sessionId: 7, brief: "# b", findings: expertFindings() },
+      { sessionId: "s", brief: 7, findings: expertFindings() },
+    ]) {
+      expect(() => ipc.emit("expert.briefReady", bad)).not.toThrow();
+    }
+    expect(seen).toEqual([]);
+
+    // Still subscribed: a well-formed payload after the junk is delivered as-is.
+    ipc.emit("expert.briefError", { sessionId: "s", error: "index empty" });
+    expect(seen).toEqual([{ ok: false, sessionId: "s", error: "index empty" }]);
+  });
 });
 
 describe("runAgent (via the public agentsX methods)", () => {
