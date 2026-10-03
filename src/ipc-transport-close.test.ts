@@ -67,8 +67,10 @@ describe("IPCClient.onClose", () => {
     });
 
     await client.disconnect();
-    // The socket teardown disconnect() triggers is asynchronous; give the
-    // event loop a turn so a wrongly-wired handler would have fired by now.
+    // On Windows (node:net) the close event disconnect() triggers arrives only
+    // after it returns; on Linux/macOS (Bun's native socket) it can fire inside
+    // end(). Give the event loop a turn so a wrongly-wired handler would have
+    // fired by now on either arm.
     await Bun.sleep(50);
 
     expect(calls).toBe(0);

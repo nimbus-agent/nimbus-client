@@ -386,9 +386,11 @@ export class IPCClient {
     this.failAll(new Error("IPC disconnected"));
     this.endWindowsTransport();
     this.endUnixTransport();
-    // The teardown is synchronous and nothing in it throws, so there is nothing
-    // to await. It still returns a promise: `disconnect()` is public API that
-    // callers have always awaited.
+    // Every step above is synchronous and none of them throws, so nothing here
+    // needs awaiting. disconnect() does not wait for the socket's close event
+    // either: Bun's native socket can fire it inside end() (hence consuming the
+    // notification first), node:net only after this returns. It still returns a
+    // promise because disconnect() is public API that callers await.
     return Promise.resolve();
   }
 
