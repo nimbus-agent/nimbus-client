@@ -375,7 +375,7 @@ export class IPCClient {
     this.closeHandlers.delete(handler);
   }
 
-  async disconnect(): Promise<void> {
+  disconnect(): Promise<void> {
     this.connected = false;
     // Consume the close notification BEFORE tearing the socket down. The
     // teardown below raises the transport's own close event, which routes into
@@ -386,6 +386,10 @@ export class IPCClient {
     this.failAll(new Error("IPC disconnected"));
     this.endWindowsTransport();
     this.endUnixTransport();
+    // The teardown is synchronous and nothing in it throws, so there is nothing
+    // to await. It still returns a promise: `disconnect()` is public API that
+    // callers have always awaited.
+    return Promise.resolve();
   }
 
   private endWindowsTransport(): void {

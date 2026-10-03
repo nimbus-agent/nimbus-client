@@ -349,7 +349,8 @@ describe("IPCClient", () => {
     await c.disconnect();
     // Second disconnect: no pending calls, and no socket left to end. Both teardown
     // helpers early-return on a null socket, and this assertion is what holds them
-    // to it — without the guards, `.end()` on null throws and this rejects.
+    // to it — without the guards, `.end()` on null throws out of disconnect() and
+    // this test fails.
     await expect(c.disconnect()).resolves.toBeUndefined();
   });
 
