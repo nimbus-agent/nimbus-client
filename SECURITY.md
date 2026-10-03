@@ -20,9 +20,12 @@ reports within a few business days.
 
 ## Security posture
 
-- **Single, pinned runtime dependency.** The published package declares only
-  `@nimbus-dev/sdk`, so its supply-chain surface is limited to this repo's own
-  source plus that one dependency.
+- **Single runtime dependency.** The published package declares only
+  `@nimbus-dev/sdk`, as a caret range rather than an exact pin, so its supply-chain
+  surface is limited to this repo's own source plus that one dependency. The ESM
+  entry (`dist/index.js`) imports whichever compatible sdk release is installed; the
+  CommonJS bundle (`dist/index.cjs`) instead inlines the sdk source it was built
+  against at release time.
 - **Provenance publishing.** Releases are published with `npm publish --provenance`
   via GitHub Actions OIDC / npm trusted-publisher — there is no long-lived npm
   token in repository secrets, and each release carries a verifiable attestation.

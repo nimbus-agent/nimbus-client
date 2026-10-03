@@ -15,10 +15,10 @@ bun install
 ## Develop
 
 ```bash
+bun run build       # tsc → dist/ (JS + .d.ts + source and declaration maps) + bundled CJS
 bun run typecheck   # tsc --noEmit over tsconfig.json (src + test + scripts in one project)
 bun run lint        # biome check .  (whole tree)
 bun run test        # bun test
-bun run build       # tsc → dist/ (JS + .d.ts + declaration maps) + bundled CJS
 ```
 
 ## Architecture notes
@@ -49,12 +49,13 @@ bun run build       # tsc → dist/ (JS + .d.ts + declaration maps) + bundled CJ
 ## Relationship to other repos
 
 - [`Nimbus`](https://github.com/nimbus-agent/Nimbus) — the gateway/CLI monorepo;
-  the first-party consumer of this client. It pins `@nimbus-dev/client` at **two**
-  sites — `packages/cli/package.json` and the monorepo root `package.json` — and
-  both have to move together.
+  the first-party consumer of this client. It pins `@nimbus-dev/client` at one
+  site, `packages/cli/package.json`; the monorepo root `package.json` carried a
+  second pin until nimbus-agent/Nimbus#1432 removed it as unused.
 - [`nimbus-sdk`](https://github.com/nimbus-agent/nimbus-sdk) — the sole runtime
   dependency. For local co-development against an unreleased sdk, run
-  `bun run verify:sdk` (packs a sibling `../nimbus-sdk` and tests against it).
+  `bun run verify:sdk` (packs the `sdks/typescript` package of a sibling
+  `../nimbus-sdk` checkout and runs `test/` against it).
   It restores `package.json` + `bun.lock` and reinstalls the published sdk itself,
   in a `finally` — every path that rewrote them is covered, and the paths that bail
   earlier (no sibling checkout, a failed sdk build or pack) never touched them. If
