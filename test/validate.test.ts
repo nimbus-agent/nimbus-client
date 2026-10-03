@@ -1112,6 +1112,32 @@ describe("validateConnectorAuth", () => {
       validateConnectorAuth("m", { ok: true, serviceId: "github", scopesGranted: [1] }),
     ).toThrow(/"scopesGranted" must contain only strings/);
   });
+
+  test("rejects a missing ok as not a boolean", () => {
+    expect(() => validateConnectorAuth("m", { serviceId: "github", scopesGranted: [] })).toThrow(
+      /"ok" must be a boolean/,
+    );
+  });
+
+  test("rejects a scopesGranted that is not an array", () => {
+    expect(() =>
+      validateConnectorAuth("m", { ok: true, serviceId: "github", scopesGranted: "repo" }),
+    ).toThrow(/expected an array/);
+  });
+
+  // Which error a payload wrong in two places reports is part of the contract: ok is
+  // checked first, then scopesGranted, then serviceId.
+  test("checks ok before scopesGranted", () => {
+    expect(() =>
+      validateConnectorAuth("m", { ok: false, serviceId: "github", scopesGranted: [1] }),
+    ).toThrow(/"ok" must be true/);
+  });
+
+  test("checks scopesGranted before serviceId", () => {
+    expect(() => validateConnectorAuth("m", { ok: true, scopesGranted: [1] })).toThrow(
+      /"scopesGranted" must contain only strings/,
+    );
+  });
 });
 
 describe("validateConnectorAddMcp / validateConnectorRemove — HITL dual-shape", () => {
@@ -1158,6 +1184,31 @@ describe("validateConnectorAddMcp / validateConnectorRemove — HITL dual-shape"
     expect(() =>
       validateConnectorRemove("m", { ok: true, itemsDeleted: 0, vaultKeysRemoved: [1] }),
     ).toThrow(/"vaultKeysRemoved" must contain only strings/);
+  });
+
+  test("addMcp rejects a missing ok as not a boolean", () => {
+    expect(() => validateConnectorAddMcp("m", { serviceId: "mcp_x" })).toThrow(
+      /"ok" must be a boolean/,
+    );
+  });
+
+  test("remove rejects a missing vaultKeysRemoved", () => {
+    expect(() => validateConnectorRemove("m", { ok: true, itemsDeleted: 0 })).toThrow(
+      /expected an array/,
+    );
+  });
+
+  // Same ordering contract as connector.auth: ok, then vaultKeysRemoved, then itemsDeleted.
+  test("remove checks ok before vaultKeysRemoved", () => {
+    expect(() =>
+      validateConnectorRemove("m", { ok: false, itemsDeleted: 0, vaultKeysRemoved: [1] }),
+    ).toThrow(/"ok" must be true/);
+  });
+
+  test("remove checks vaultKeysRemoved before itemsDeleted", () => {
+    expect(() => validateConnectorRemove("m", { ok: true, vaultKeysRemoved: [1] })).toThrow(
+      /"vaultKeysRemoved" must contain only strings/,
+    );
   });
 });
 
