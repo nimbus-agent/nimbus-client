@@ -57,14 +57,20 @@ async function within<T>(ms: number, what: string, promise: Promise<T>): Promise
   }
 }
 
+/** The gateway's end of the connection a dial just made, bounded like every other wait here. */
+function accepted(socket: Promise<net.Socket>): Promise<net.Socket> {
+  return within(2000, "the gateway accepting the connection", socket);
+}
+
 const NET_DIALS = ["connectWindows", "connectUnixNode"] as const;
 
 for (const dial of NET_DIALS) {
   describe(`IPCClient.${dial} (node:net)`, () => {
     /**
-     * Every wait in this file is bounded, the dial and each call included. While
-     * proving these tests can fail, a dial whose promise never settled did not fail
-     * at the runner's 5 s test timeout: it wedged the whole run past two minutes.
+     * Every wait on a connection in this file is bounded: the dial, the gateway
+     * accepting it, each call (through `requestTimeoutMs`) and each socket event.
+     * While proving these tests can fail, a dial whose promise never settled did not
+     * fail at the runner's 5 s test timeout: it wedged the whole run past two minutes.
      */
     async function dialed(endpoint: string): Promise<IPCClient> {
       const c = new IPCClient(endpoint, { requestTimeoutMs: 2000 });
@@ -103,7 +109,7 @@ for (const dial of NET_DIALS) {
       c.onClose((err) => closes.push(err.message));
 
       const pending = c.call("never.answered");
-      (await socket).destroy();
+      (await accepted(socket)).destroy();
 
       await expect(pending).rejects.toThrow(/^IPC connection closed$/);
       expect(closes).toEqual(["IPC connection closed"]);
@@ -134,7 +140,7 @@ for (const dial of NET_DIALS) {
       const c = await dialed(endpoint);
       const pending = c.call("oversized");
 
-      const gatewaySide = await socket;
+      const gatewaySide = await accepted(socket);
       const ended = once(gatewaySide, "end");
       // One byte past the reader's 1 MB line limit, and no newline to end the frame.
       gatewaySide.write("x".repeat(1024 * 1024 + 1));
@@ -156,7 +162,7 @@ for (const dial of NET_DIALS) {
       const clientSide = internals(c).netSocket;
       if (clientSide === null) throw new Error("the dial resolved without a net socket");
       const clientClosed = once(clientSide, "close");
-      const gatewaySawEnd = once(await socket, "end");
+      const gatewaySawEnd = once(await accepted(socket), "end");
 
       await c.disconnect();
       await within(2000, "the gateway seeing the client end the connection", gatewaySawEnd);
