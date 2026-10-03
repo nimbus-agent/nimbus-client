@@ -1,12 +1,31 @@
 import { randomUUID } from "node:crypto";
 
 import type { IPCClient } from "./ipc-transport.js";
-import type { WorkflowRunResult } from "./nimbus-client.js";
+import type { WorkflowRunParams, WorkflowRunResult } from "./nimbus-client.js";
 import type {
   WorkflowRunEvent,
   WorkflowRunStreamHandle,
   WorkflowRunStreamParams,
 } from "./stream-events.js";
+
+/**
+ * The `workflow.run` wire params for a `WorkflowRunParams`. `NimbusClient.workflowRun`
+ * sends them as they are; {@link createWorkflowRunStream} overrides `stream` and
+ * `streamId` on top. One mapping for both, so a field added to `WorkflowRunParams`
+ * reaches the Gateway from the streaming path too, not only from the one that was edited.
+ */
+export function workflowRunWireParams(params: WorkflowRunParams): Record<string, unknown> {
+  return {
+    name: params.name,
+    triggeredBy: params.triggeredBy,
+    dryRun: params.dryRun,
+    stream: params.stream,
+    sessionId: params.sessionId,
+    agent: params.agent,
+    paramsOverride: params.paramsOverride,
+    streamId: params.streamId,
+  };
+}
 
 type Pending = {
   resolve: (v: IteratorResult<WorkflowRunEvent>) => void;
@@ -84,14 +103,9 @@ export function createWorkflowRunStream(
   const result: Promise<WorkflowRunResult> = (async () => {
     try {
       const raw = await ipc.call("workflow.run", {
-        name: params.name,
-        triggeredBy: params.triggeredBy,
-        dryRun: params.dryRun,
+        ...workflowRunWireParams(params),
         // The whole point of this handle — never let a caller turn it off here.
         stream: true,
-        sessionId: params.sessionId,
-        agent: params.agent,
-        paramsOverride: params.paramsOverride,
         streamId,
       });
       return validate("workflow.run", raw);

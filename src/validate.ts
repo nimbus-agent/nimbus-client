@@ -54,6 +54,7 @@ import type {
   PreflightCheck,
   PreflightGap,
   PrFinding,
+  QueryItemsResult,
   RankedSearchItem,
   RankedSearchWithRetrieval,
   SandboxDiag,
@@ -253,10 +254,7 @@ export function validateSessionClear(method: string, v: unknown): SessionClearRe
  * `itemType` passes through verbatim: ItemType is an open enum, and rewriting
  * an unrecognised type would be data corruption.
  */
-export function validateQueryItems(
-  method: string,
-  v: unknown,
-): { items: IndexedItem[]; meta: { limit: number; total: number } } {
+export function validateQueryItems(method: string, v: unknown): QueryItemsResult {
   const o = record(method, v);
 
   const items = arr(method, o["items"]).map((raw): IndexedItem => {

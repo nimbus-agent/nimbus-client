@@ -69,6 +69,8 @@ import type {
   IndexMetrics,
   MetricsDoraParams,
   NimbusClientLike,
+  QueryItemsParams,
+  QueryItemsResult,
   RankedSearchItem,
   RankedSearchParams,
   RankedSearchWithRetrieval,
@@ -294,13 +296,7 @@ export class MockClient implements NimbusClientLike {
     return { ok: true, cleared: "all" };
   }
 
-  async queryItems(_params: {
-    services?: string[];
-    types?: string[];
-    sinceMs?: number;
-    untilMs?: number;
-    limit?: number;
-  }): Promise<{ items: IndexedItem[]; meta: { limit: number; total: number } }> {
+  async queryItems(_params: QueryItemsParams): Promise<QueryItemsResult> {
     const items = this.fixtures.items ?? [];
     return { items, meta: { limit: items.length, total: items.length } };
   }
@@ -582,15 +578,23 @@ export class MockClient implements NimbusClientLike {
     return this.fixtures.workflowListRuns ?? { runs: [] };
   }
 
+  /**
+   * The run {@link workflowRun} reports with no fixture, and the same run
+   * {@link workflowRunStream} resolves `result` to: the real client answers both
+   * from one `workflow.run` RPC, so the double gives both one default. It echoes
+   * `dryRun`, and a dry run reports `"preview"` as the Gateway does.
+   */
+  private defaultWorkflowRun(params: Pick<WorkflowRunParams, "dryRun">): WorkflowRunResult {
+    return {
+      runId: "mock-run",
+      status: params.dryRun === true ? "preview" : "done",
+      dryRun: params.dryRun ?? false,
+      stepResults: [],
+    };
+  }
+
   async workflowRun(params: WorkflowRunParams): Promise<WorkflowRunResult> {
-    return (
-      this.fixtures.workflowRun ?? {
-        runId: "mock-run",
-        status: params.dryRun === true ? "preview" : "done",
-        dryRun: params.dryRun ?? false,
-        stepResults: [],
-      }
-    );
+    return this.fixtures.workflowRun ?? this.defaultWorkflowRun(params);
   }
 
   async workflowCancel(_params: WorkflowCancelParams): Promise<WorkflowCancelResult> {
@@ -599,12 +603,7 @@ export class MockClient implements NimbusClientLike {
 
   workflowRunStream(params: WorkflowRunStreamParams): WorkflowRunStreamHandle {
     const chunks = this.fixtures.workflowRunChunks ?? ["mock ", "workflow"];
-    const value = this.fixtures.workflowRun ?? {
-      runId: "mock-run",
-      status: params.dryRun === true ? "preview" : "done",
-      dryRun: params.dryRun ?? false,
-      stepResults: [],
-    };
+    const value = this.fixtures.workflowRun ?? this.defaultWorkflowRun(params);
     const cancelResult = this.fixtures.workflowCancel ?? { cancelled: true };
     let i = 0;
     return {
