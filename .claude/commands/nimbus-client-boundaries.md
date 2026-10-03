@@ -122,10 +122,11 @@ is why 19 transport tests carried `test.skipIf(isWin)` — skipped on the only O
 CI leg exercises the named-pipe branch of `src/ipc-transport.ts` at all. They run
 everywhere now; do not reintroduce a private server. `test/ipc-transport-net.test.ts`
 uses the same harness to drive both `node:net` dials on every OS. Bound every wait in a
-socket test the way that file's `within()` helper does: on Windows, Bun 1.3.14 hangs
+socket test the way that file's `within()` helper does: on Windows, Bun 1.3.14 can hang
 the whole `bun test` run on an awaited promise that never settles instead of failing
-it at the 5 s per-test timeout (Linux fails it at 5 s as expected), and Windows is a
-required CI leg. Note both helpers under `test/` are `_`-prefixed and are **not**
+it at the 5 s per-test timeout. It did so with nothing else keeping the event loop busy;
+with sockets still open the timeout fired, and Linux fails it at 5 s either way. Windows
+is a required CI leg. Note both helpers under `test/` are `_`-prefixed and are **not**
 `*.test.ts`, so Biome lints them with the full `src/` ruleset (no `console`, no `!`) —
 see `CLAUDE.md`.
 
