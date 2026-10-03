@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { createEventQueue } from "./event-queue.js";
 import type { IPCClient } from "./ipc-transport.js";
 import type { WorkflowRunParams, WorkflowRunResult } from "./nimbus-client.js";
 import type {
@@ -27,11 +28,6 @@ export function workflowRunWireParams(params: WorkflowRunParams): Record<string,
   };
 }
 
-type Pending = {
-  resolve: (v: IteratorResult<WorkflowRunEvent>) => void;
-  reject: (e: Error) => void;
-};
-
 /**
  * Stream a workflow run's per-step output.
  *
@@ -54,34 +50,17 @@ export function createWorkflowRunStream(
   params: WorkflowRunStreamParams,
   validate: (method: string, raw: unknown) => WorkflowRunResult,
 ): WorkflowRunStreamHandle {
-  const queue: WorkflowRunEvent[] = [];
-  const waiters: Pending[] = [];
-  let done = false;
+  const events = createEventQueue<WorkflowRunEvent>();
   let detach: (() => void) | undefined;
   // Minted, not received: workflow.run resolves too late for a gateway id to be
   // useful. Unique per run — the gateway rejects reuse of a live id with -32602.
   const streamId = params.streamId ?? randomUUID();
 
-  const push = (ev: WorkflowRunEvent): void => {
-    if (done) return;
-    const w = waiters.shift();
-    if (w !== undefined) {
-      w.resolve({ value: ev, done: false });
-      return;
-    }
-    queue.push(ev);
-  };
-
   const finish = (): void => {
-    if (done) return;
-    done = true;
-    detach?.();
-    detach = undefined;
-    let w = waiters.shift();
-    while (w !== undefined) {
-      w.resolve({ value: undefined as unknown as WorkflowRunEvent, done: true });
-      w = waiters.shift();
-    }
+    events.close(() => {
+      detach?.();
+      detach = undefined;
+    });
   };
 
   const onChunk = (p: unknown): void => {
@@ -91,7 +70,7 @@ export function createWorkflowRunStream(
     // A tag that is not ours belongs to another run or a concurrent ask.
     if (typeof tag === "string" && tag !== streamId) return;
     const text = (p as { text?: unknown }).text;
-    if (typeof text === "string") push({ type: "chunk", text });
+    if (typeof text === "string") events.push({ type: "chunk", text });
   };
 
   // Subscribe BEFORE sending the RPC. The response and the first notifications
@@ -119,11 +98,11 @@ export function createWorkflowRunStream(
 
   result.then(
     (value) => {
-      push({ type: "done", result: value });
+      events.push({ type: "done", result: value });
       finish();
     },
     (err: unknown) => {
-      push({ type: "error", message: err instanceof Error ? err.message : String(err) });
+      events.push({ type: "error", message: err instanceof Error ? err.message : String(err) });
       finish();
     },
   );
@@ -149,14 +128,7 @@ export function createWorkflowRunStream(
     [Symbol.asyncIterator](): AsyncIterator<WorkflowRunEvent> {
       return {
         next(): Promise<IteratorResult<WorkflowRunEvent>> {
-          const ev = queue.shift();
-          if (ev !== undefined) return Promise.resolve({ value: ev, done: false });
-          if (done) {
-            return Promise.resolve({ value: undefined as unknown as WorkflowRunEvent, done: true });
-          }
-          return new Promise<IteratorResult<WorkflowRunEvent>>((resolve, reject) => {
-            waiters.push({ resolve, reject });
-          });
+          return events.next();
         },
         return(): Promise<IteratorResult<WorkflowRunEvent>> {
           // Detaches the listener; the run itself keeps going (no workflow.cancel).
