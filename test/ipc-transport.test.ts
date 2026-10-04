@@ -349,7 +349,8 @@ describe("IPCClient", () => {
     await c.disconnect();
     // Second disconnect: no pending calls, and no socket left to end. Both teardown
     // helpers early-return on a null socket, and this assertion is what holds them
-    // to it — without the guards, `.end()` on null throws and this rejects.
+    // to it — without the guards, `.end()` on null throws out of disconnect() and
+    // this test fails.
     await expect(c.disconnect()).resolves.toBeUndefined();
   });
 
@@ -370,7 +371,6 @@ describe("IPCClient", () => {
     // Use a custom server that replies with a numeric id
     await startServer((line, write) => {
       const req = JSON.parse(line) as { id: string };
-      void req;
       // Reply with a numeric id — exercises the number arm of idKey in dispatchRpcLine
       // We send the numeric reply BEFORE the real one to exercise the number branch path
       // (the numeric id won't match the UUID-based pending — it will hit the "pend undefined" branch)

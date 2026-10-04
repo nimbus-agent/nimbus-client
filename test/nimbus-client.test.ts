@@ -127,6 +127,18 @@ describe("NimbusClient method dispatch", () => {
       expect(out).toEqual({ items: [row], retrieval: null, notes: [] });
     });
 
+    test("an envelope that omits the optional retrieval fields and notes reads them as null and []", async () => {
+      // Only `vectorRanked` is required. A Gateway that sends nothing else must
+      // still have its results accepted, not the whole response rejected.
+      const ipc = new FakeIpc([{ items: [row], retrieval: { vectorRanked: true } }]);
+      const out = await makeClient(ipc).searchRankedWithRetrieval({ name: "plan" });
+      expect(out).toEqual({
+        items: [row],
+        retrieval: { vectorRanked: true, reason: null, partial: null, backfill: null },
+        notes: [],
+      });
+    });
+
     test("an unrecognised reason from a newer Gateway still validates", async () => {
       const retrieval = {
         vectorRanked: false,

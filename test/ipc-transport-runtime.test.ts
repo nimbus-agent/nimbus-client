@@ -47,6 +47,30 @@ describe("transport end-to-end", () => {
     expect(await client.egressHead()).toEqual({ head: "h", count: 2 });
     await client.close();
   });
+
+  test("NimbusClient.open applies requestTimeoutMs to the calls it makes", async () => {
+    const endpoint = tempEndpoint("nimbus-e2e");
+    await serveNdjson(endpoint, () => {
+      /* a wedged gateway: accepts the request and never answers */
+    });
+
+    const client = await NimbusClient.open({ socketPath: endpoint, requestTimeoutMs: 40 });
+    // Raced against a bound well under the 30 s default: if the option were
+    // dropped on the way to the transport, this fails here instead of hanging.
+    let bound: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+      client.egressHead().then(
+        () => "resolved",
+        (e: unknown) => (e instanceof Error ? e.message : String(e)),
+      ),
+      new Promise<string>((resolve) => {
+        bound = setTimeout(() => resolve("still pending after 2000ms"), 2000);
+      }),
+    ]);
+    clearTimeout(bound);
+    expect(outcome).toBe("IPC request timed out after 40ms: egress.head");
+    await client.close();
+  });
 });
 
 describe("transport connection failure", () => {

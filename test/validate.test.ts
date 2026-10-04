@@ -137,6 +137,22 @@ describe("validate — happy paths", () => {
     expect(t.turns[0]).toEqual({ role: "user", text: "hi", timestamp: 1, auditLogId: 9 });
   });
 
+  test("validateSessionTranscript leaves auditLogId off a turn that has none", () => {
+    // Absent, not `auditLogId: undefined`: toEqual cannot tell those two apart,
+    // so the hasOwn check below is what holds the key off the turn.
+    const t = validateSessionTranscript("m", {
+      sessionId: "s",
+      hasMore: true,
+      turns: [{ role: "assistant", text: "hello", timestamp: 2 }],
+    });
+    expect(t).toEqual({
+      sessionId: "s",
+      hasMore: true,
+      turns: [{ role: "assistant", text: "hello", timestamp: 2 }],
+    });
+    expect(Object.hasOwn(t.turns[0] ?? {}, "auditLogId")).toBe(false);
+  });
+
   test("validateQueryItems accepts a camelCase indexed item", () => {
     expect(
       validateQueryItems("m", {
@@ -374,8 +390,56 @@ describe("validate — happy paths", () => {
   });
 
   test("validateDiagSnapshot accepts a null linux_helper and no auto_update", () => {
-    const out = validateDiagSnapshot("m", DIAG_SNAPSHOT_WIRE);
+    // The shared fixture carries a PRESENT linux_helper, so this test used to pass
+    // it straight through and never take the null arm its name promised.
+    const out = validateDiagSnapshot("m", {
+      ...DIAG_SNAPSHOT_WIRE,
+      sandbox: { ...DIAG_SNAPSHOT_WIRE.sandbox, linux_helper: null },
+    });
+    expect(out.sandbox.linux_helper).toBeNull();
     expect(out.extensions.auto_update).toBeUndefined();
+  });
+
+  test("validateDiagSnapshot carries every optional connector-health field and a fired watcher", () => {
+    const health = {
+      connectorId: "slack",
+      state: "backoff",
+      backoffAttempt: 3,
+      retryAfterMs: 1500,
+      backoffUntilMs: 1_700_000_001_500,
+      lastError: "429 Too Many Requests",
+      lastSuccessfulSyncMs: 1_700_000_000_000,
+      lastSyncAttemptMs: 1_700_000_000_900,
+    };
+    const watcher = { id: "w2", name: "deploys", enabled: false, lastFiredAtMs: 1_700_000_000_123 };
+    const out = validateDiagSnapshot("m", {
+      ...DIAG_SNAPSHOT_WIRE,
+      connectorHealth: [health],
+      watchers: [watcher],
+    });
+    expect(out.connectorHealth).toEqual([health]);
+    expect(out.watchers).toEqual([watcher]);
+  });
+
+  test("validateGatewayStatus carries every optional field when the Gateway sends it", () => {
+    const wire = {
+      ...GATEWAY_STATUS_WIRE,
+      policy: {
+        signatureValid: true,
+        pendingRestart: true,
+        source: "peer" as const,
+        org: "acme",
+        version: 7,
+        lastFetchedMs: 1_700_000_000_000,
+      },
+      peers: [{ peerId: "p1", reachable: false, lastSeenMs: 1_700_000_000_100 }],
+      connectors: [
+        { id: "c1", enabled: true, blockedByPolicy: true, health: "degraded", lastSyncMs: 99 },
+      ],
+      namespaces: [{ name: "ns", subscribers: 2, lastPropagateMs: 1_700_000_000_200 }],
+      identity: { operatorValid: true, externalId: "okta|42" },
+    };
+    expect(validateGatewayStatus("m", wire)).toEqual(wire);
   });
 
   test("validateGatewayStatus accepts the full snapshot", () => {
@@ -707,6 +771,21 @@ describe("validate — rejections throw IpcResponseError", () => {
         watchers: [{ ...DIAG_SNAPSHOT_WIRE.watchers[0], lastFiredAtMs: "never" }],
       }),
     ).toThrow(/"lastFiredAtMs" must be a number or null/);
+  });
+
+  test("validateDiagSnapshot rejects a non-finite lastFiredAtMs, not only a non-number", () => {
+    // Reachable from the wire: JSON has no Infinity literal, but an overflowing
+    // number does parse to one. NaN is the other value a number type check lets by.
+    const overflowed = JSON.parse("1e999") as number;
+    expect(overflowed).toBe(Number.POSITIVE_INFINITY);
+    for (const lastFiredAtMs of [overflowed, Number.NaN]) {
+      expect(() =>
+        validateDiagSnapshot("m", {
+          ...DIAG_SNAPSHOT_WIRE,
+          watchers: [{ ...DIAG_SNAPSHOT_WIRE.watchers[0], lastFiredAtMs }],
+        }),
+      ).toThrow(/"lastFiredAtMs" must be a number or null/);
+    }
   });
 
   test("validateDiagSnapshot rejects a non-string/non-null platform reason", () => {
@@ -1112,6 +1191,32 @@ describe("validateConnectorAuth", () => {
       validateConnectorAuth("m", { ok: true, serviceId: "github", scopesGranted: [1] }),
     ).toThrow(/"scopesGranted" must contain only strings/);
   });
+
+  test("rejects a missing ok as not a boolean", () => {
+    expect(() => validateConnectorAuth("m", { serviceId: "github", scopesGranted: [] })).toThrow(
+      /"ok" must be a boolean/,
+    );
+  });
+
+  test("rejects a scopesGranted that is not an array", () => {
+    expect(() =>
+      validateConnectorAuth("m", { ok: true, serviceId: "github", scopesGranted: "repo" }),
+    ).toThrow(/expected an array/);
+  });
+
+  // Which error a payload wrong in two places reports is part of the contract: ok is
+  // checked first, then scopesGranted, then serviceId.
+  test("checks ok before scopesGranted", () => {
+    expect(() =>
+      validateConnectorAuth("m", { ok: false, serviceId: "github", scopesGranted: [1] }),
+    ).toThrow(/"ok" must be true/);
+  });
+
+  test("checks scopesGranted before serviceId", () => {
+    expect(() => validateConnectorAuth("m", { ok: true, scopesGranted: [1] })).toThrow(
+      /"scopesGranted" must contain only strings/,
+    );
+  });
 });
 
 describe("validateConnectorAddMcp / validateConnectorRemove — HITL dual-shape", () => {
@@ -1158,6 +1263,31 @@ describe("validateConnectorAddMcp / validateConnectorRemove — HITL dual-shape"
     expect(() =>
       validateConnectorRemove("m", { ok: true, itemsDeleted: 0, vaultKeysRemoved: [1] }),
     ).toThrow(/"vaultKeysRemoved" must contain only strings/);
+  });
+
+  test("addMcp rejects a missing ok as not a boolean", () => {
+    expect(() => validateConnectorAddMcp("m", { serviceId: "mcp_x" })).toThrow(
+      /"ok" must be a boolean/,
+    );
+  });
+
+  test("remove rejects a missing vaultKeysRemoved", () => {
+    expect(() => validateConnectorRemove("m", { ok: true, itemsDeleted: 0 })).toThrow(
+      /expected an array/,
+    );
+  });
+
+  // Same ordering contract as connector.auth: ok, then vaultKeysRemoved, then itemsDeleted.
+  test("remove checks ok before vaultKeysRemoved", () => {
+    expect(() =>
+      validateConnectorRemove("m", { ok: false, itemsDeleted: 0, vaultKeysRemoved: [1] }),
+    ).toThrow(/"ok" must be true/);
+  });
+
+  test("remove checks vaultKeysRemoved before itemsDeleted", () => {
+    expect(() => validateConnectorRemove("m", { ok: true, vaultKeysRemoved: [1] })).toThrow(
+      /"vaultKeysRemoved" must contain only strings/,
+    );
   });
 });
 

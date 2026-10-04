@@ -29,15 +29,16 @@ test("package identity is standalone nimbus-client", () => {
   // (`WhyBrief`/`WhyPeek`/`isWhyBrief`), which `agentsWhy`/`agentsWhyPeek` need.
   //
   // Asserted as a FLOOR, which is what the paragraph above always described. It
-  // used to be `toBe("^1.6.0")`, an exact match, so every Dependabot bump of the
-  // SDK failed here — the sibling test below warns against exactly that literal,
-  // and this one did it anyway.
+  // used to be `toBe("^1.6.0")`, an exact match, so every bump of the SDK range
+  // failed here — the sibling test below warns against exactly that literal, and
+  // this one did it anyway.
   //
   // So the 1.6.0 here and the higher range in package.json are NOT a disagreement
   // to reconcile; they answer different questions. This is the oldest SDK the
   // client's code still works against, established feature by feature above.
   // package.json carries what we currently depend on, which tracks the gateway's
-  // pin and moves with Dependabot. Collapsing the two would mean re-pinning this
+  // pin and moves in the maintainer's periodic dependency updates (CONTRIBUTING.md
+  // § Updating dependencies). Collapsing the two would mean re-pinning this
   // literal on every bump — the failure this test was just rewritten to stop.
   // Raise this number only when the client starts using an API added after 1.6.0,
   // and extend the paragraph above with the reason when you do.

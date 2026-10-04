@@ -121,11 +121,11 @@ const provablyLocal = sound && EGRESS_COVERAGE_CLASSES.every(observed);
 
 Releases are automated by [release-please](https://github.com/googleapis/release-please).
 Merged [Conventional Commits](https://www.conventionalcommits.org/) on `main` open a
-release PR; merging it tags the release and triggers `.github/workflows/release.yml`,
-which publishes `@nimbus-dev/client` to npm with `npm publish --provenance` via GitHub
-Actions OIDC / npm **trusted-publisher**. There is **no long-lived npm token** — the
-trusted-publisher binding authenticates the workflow and attaches a verifiable provenance
-attestation (see [`SECURITY.md`](./SECURITY.md)).
+release PR; merging it runs `.github/workflows/release.yml`, which tags the release
+(`client-vX.Y.Z`) and publishes `@nimbus-dev/client` to npm with
+`npm publish --provenance` via GitHub Actions OIDC / npm **trusted-publisher**. There is
+**no long-lived npm token** — the trusted-publisher binding authenticates the workflow
+and attaches a verifiable provenance attestation (see [`SECURITY.md`](./SECURITY.md)).
 
 ## See also
 

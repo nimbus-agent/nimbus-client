@@ -15,19 +15,20 @@ bun install
 ## Develop
 
 ```bash
+bun run build       # tsc → dist/ (JS + .d.ts + source and declaration maps) + bundled CJS
 bun run typecheck   # tsc --noEmit over tsconfig.json (src + test + scripts in one project)
 bun run lint        # biome check .  (whole tree)
 bun run test        # bun test
-bun run build       # tsc → dist/ (JS + .d.ts + declaration maps) + bundled CJS
 ```
 
 ## Architecture notes
 
 - **One runtime dependency.** `@nimbus-dev/client` declares a single runtime
   dependency, [`@nimbus-dev/sdk`](https://github.com/nimbus-agent/nimbus-sdk),
-  consumed as the published `^1.6.0`. The floor is asserted in
-  `scripts/check-package-identity.test.ts` — bump both together. Do not add
-  another runtime dependency; if you need a helper, inline it.
+  consumed as a caret range on the published package. Do not add another
+  runtime dependency; if you need a helper, inline it. How that range moves, and
+  why the floor asserted in `scripts/check-package-identity.test.ts` usually
+  does not move with it, is under [Updating dependencies](#updating-dependencies).
 - **No `any`; TypeScript strict.** Use `unknown` for data crossing a boundary and
   narrow with a type guard. Biome enforces the rules in `biome.json`, including
   `noExplicitAny` and `noConsole`. The relaxations are file-pattern scoped, not
@@ -48,12 +49,13 @@ bun run build       # tsc → dist/ (JS + .d.ts + declaration maps) + bundled CJ
 ## Relationship to other repos
 
 - [`Nimbus`](https://github.com/nimbus-agent/Nimbus) — the gateway/CLI monorepo;
-  the first-party consumer of this client. It pins `@nimbus-dev/client` at **two**
-  sites — `packages/cli/package.json` and the monorepo root `package.json` — and
-  both have to move together.
+  the first-party consumer of this client. It pins `@nimbus-dev/client` at one
+  site, `packages/cli/package.json`; the monorepo root `package.json` carried a
+  second pin until nimbus-agent/Nimbus#1432 removed it as unused.
 - [`nimbus-sdk`](https://github.com/nimbus-agent/nimbus-sdk) — the sole runtime
   dependency. For local co-development against an unreleased sdk, run
-  `bun run verify:sdk` (packs a sibling `../nimbus-sdk` and tests against it).
+  `bun run verify:sdk` (packs the `sdks/typescript` package of a sibling
+  `../nimbus-sdk` checkout and runs `test/` against it).
   It restores `package.json` + `bun.lock` and reinstalls the published sdk itself,
   in a `finally` — every path that rewrote them is covered, and the paths that bail
   earlier (no sibling checkout, a failed sdk build or pack) never touched them. If
@@ -92,6 +94,48 @@ public thread on either.
   CI then additionally smoke-tests the CJS bundle under Node and asserts no
   build-machine path is baked into `dist/index.cjs`; SonarCloud runs
   `bun run test:coverage` as a blocking gate.
+
+## Updating dependencies
+
+A maintainer updates dependencies in periodic bulk PRs: `bun outdated`, edit the
+ranges in `package.json`, `bun install`, then the full checks from
+[Pull requests](#pull-requests), build first. Dependabot is retired here (there
+is no `.github/dependabot.yml`, and its security-update PRs are off in the
+repository settings), but its **alerts** are still on: a vulnerable dependency
+still shows up in the Security tab, and the answer to one is a bulk PR.
+
+What the retired `.github/dependabot.yml` encoded, and a bulk update still has
+to respect:
+
+- **Commit `bun.lock` with `package.json`.** CI installs with
+  `bun install --frozen-lockfile`, which refuses a lockfile that disagrees with
+  `package.json` ("lockfile had changes, but lockfile is frozen"). A range
+  edited without a fresh `bun install` is the usual cause.
+- **`@nimbus-dev/sdk` gets its own PR; dev dependencies can share one.** The
+  sdk is the one runtime dependency, its range ships in the published
+  `package.json`, and `src/index.ts` re-exports its types, so moving it can
+  change this package's exported types (sdk 2.0.0 widened the re-exported
+  `AgentName`). That makes it semver-relevant here; see the *Public surface*
+  note above. Keep it a caret range on the published package, never
+  `workspace:*`. The `1.6.0` asserted in `scripts/check-package-identity.test.ts`
+  is a floor, the oldest sdk this code works against, not a copy of the range:
+  a bump leaves it alone. Raise it only when the client starts using a newer
+  sdk API, and record why beside it.
+- **GitHub Actions are pinned by commit SHA** with the version in a trailing
+  comment (`@<sha> # v7.0.1`); move both. The steps of a multi-step action move
+  as one: `github/codeql-action/init` and `github/codeql-action/analyze` in
+  `codeql.yml` must share a SHA, or CodeQL hard-fails with "Loaded a
+  configuration file for version X, but running version Y". The one exception
+  to the version comment is the org's own
+  `nimbus-agent/.github/actions/verify-npm-provenance` in `release.yml`: that
+  repository publishes no releases or tags, so it is pinned to a commit on its
+  `main` with no comment, and an update moves it to `main`'s tip.
+
+Should Dependabot ever come back, restore `.github/dependabot.yml` and the
+Dependabot skip in `.github/workflows/cla.yml` from history; both were removed
+in the same commit. Use the `bun` package-ecosystem, not `npm`: the npm one
+does not understand `bun.lock`, bumps `package.json` alone, and every PR it
+opens fails the frozen-lockfile install.
 
 ## Releases
 

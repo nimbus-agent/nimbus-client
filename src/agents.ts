@@ -58,6 +58,13 @@ type AgentParamsMap = {
 };
 
 /**
+ * Resolves to `Name` unchanged; the `extends AgentName` constraint is its whole purpose. Wrapping a
+ * union in it is a compile-time subset check: a member the SDK's `AgentName` does not contain fails
+ * to compile at the wrapping site, and nothing is emitted at runtime.
+ */
+type KnownToTheSdk<Name extends AgentName> = Name;
+
+/**
  * The agents THIS CLIENT implements a method for — nine of them.
  *
  * Deliberately not `AgentName`, which is the gateway's full roster and grows without this package:
@@ -66,14 +73,11 @@ type AgentParamsMap = {
  * those three is a feature — methods, param and brief types, mock fixtures, a README row — not
  * something a dependency bump should perform silently.
  *
- * The narrowing tolerates ADDITIONS and still refuses REMOVALS: the assignment below stops
- * compiling if any of the nine ceases to be an `AgentName`, which is the direction that would leave
- * this client calling a gateway method that no longer exists.
+ * The narrowing tolerates ADDITIONS and still refuses REMOVALS: the {@link KnownToTheSdk} wrapper
+ * stops compiling if any of the nine ceases to be an `AgentName`, which is the direction that would
+ * leave this client calling a gateway method that no longer exists.
  */
-export type SupportedAgentName = keyof AgentParamsMap;
-
-const _supportedAgentsAreKnownToTheSdk: (agent: SupportedAgentName) => AgentName = (agent) => agent;
-void _supportedAgentsAreKnownToTheSdk;
+export type SupportedAgentName = KnownToTheSdk<keyof AgentParamsMap>;
 
 /**
  * The same nine at RUNTIME, for callers that need to enumerate them (the conformance gate does).

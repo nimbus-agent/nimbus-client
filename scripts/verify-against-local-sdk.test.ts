@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import {
   packableIdentity,
   realVerificationEnv,
@@ -150,6 +150,68 @@ describe("resolvePackTarget — the whole decision the entry block used to make 
       },
     });
     expect(target).toBe(`${siblingSdk}/package.json could not be read: EACCES`);
+  });
+
+  test("names a read failure that is not an Error by its string form", () => {
+    const target = resolvePackTarget(clientRoot, {
+      exists: (p) => p === siblingSdk,
+      readPackageJson: () => {
+        throw "EPERM: operation not permitted";
+      },
+    });
+    expect(target).toBe(
+      `${siblingSdk}/package.json could not be read: EPERM: operation not permitted`,
+    );
+  });
+});
+
+/**
+ * The tests above inject `exists` and `readPackageJson`; the entry block injects
+ * nothing, so it runs on the defaults. These hold the defaults to the same contract
+ * against a real directory tree, so a default wired to the wrong path (or to a
+ * different file) fails here rather than only on a maintainer's machine.
+ */
+describe("the filesystem defaults", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "nimbus-client-defaults-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("resolveSiblingSdk checks the real filesystem when no exists() is given", () => {
+    const client = join(dir, "nimbus-client");
+    const sibling = join(dir, "nimbus-sdk");
+    const nested = join(sibling, "sdks", "typescript");
+
+    expect(resolveSiblingSdk(client)).toBeNull();
+    mkdirSync(sibling);
+    expect(resolveSiblingSdk(client)).toBe(sibling);
+    mkdirSync(nested, { recursive: true });
+    expect(resolveSiblingSdk(client)).toBe(nested);
+  });
+
+  test("resolvePackTarget reads the packable package.json from disk when no deps are given", () => {
+    const sibling = join(dir, "nimbus-sdk");
+    const nested = join(sibling, "sdks", "typescript");
+    mkdirSync(nested, { recursive: true });
+    // Two different identities, so reading the wrong file cannot pass.
+    writeFileSync(
+      join(sibling, "package.json"),
+      JSON.stringify({ name: "@nimbus-dev/sdk-monorepo", private: true }),
+    );
+    writeFileSync(
+      join(nested, "package.json"),
+      JSON.stringify({ name: "@nimbus-dev/sdk", version: "9.8.7" }),
+    );
+
+    expect(resolvePackTarget(join(dir, "nimbus-client"))).toEqual({
+      dir: nested,
+      name: "@nimbus-dev/sdk",
+      version: "9.8.7",
+    });
   });
 });
 
@@ -408,5 +470,54 @@ describe("realVerificationEnv", () => {
       console.error = original;
     }
     expect(seen).toEqual(["something went wrong"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The entry block itself
+// ---------------------------------------------------------------------------
+
+/**
+ * `import.meta.main` is false under `bun test`, so the entry block can only run in a
+ * process of its own. That also puts it out of reach of the coverage report, which
+ * instruments this process only: this test is what checks it, not the line count.
+ *
+ * A checkout whose sibling sdk cannot be packed is the one place the real script can
+ * run end to end safely. `runVerification` refuses before its first command, so
+ * nothing is built, packed or rewritten, and the temp directory is all it touches.
+ */
+describe("the verify:sdk entry point", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "nimbus-client-entry-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("takes the client root from its working directory and exits with the verdict", () => {
+    const clientRoot = join(dir, "nimbus-client");
+    mkdirSync(clientRoot);
+    // The sibling is the sdk monorepo's private root, with nothing nested under
+    // sdks/typescript: present, and refused rather than packed.
+    mkdirSync(join(dir, "nimbus-sdk"));
+    writeFileSync(
+      join(dir, "nimbus-sdk", "package.json"),
+      JSON.stringify({ name: "probe-sdk-monorepo", private: true }),
+    );
+
+    const proc = Bun.spawnSync(
+      [process.execPath, join(import.meta.dir, "verify-against-local-sdk.ts")],
+      { cwd: clientRoot, stdout: "pipe", stderr: "pipe" },
+    );
+
+    expect(proc.exitCode).toBe(1);
+    // Naming THIS temp directory's sibling proves the root came from the child's
+    // working directory, not from where the script file lives. Matched from the
+    // mkdtemp basename on, because macOS reports a symlink-resolved cwd.
+    expect(proc.stderr.toString()).toContain(
+      `${basename(dir)}${sep}nimbus-sdk has no packable package.json (name=probe-sdk-monorepo, version=undefined).`,
+    );
   });
 });

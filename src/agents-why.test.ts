@@ -40,6 +40,25 @@ test("validateWhyPeek accepts a well-formed peek and is lenient about extras", (
   expect(validateWhyPeek("agents.whyPeek", { ...peek, futureField: 1 })).toEqual(peek);
 });
 
+test("validateWhyPeek reads a null or absent subject, pr and ticket as null", () => {
+  // A line nothing can be attributed to: no blame, no PR, no ticket. Both
+  // spellings of "nothing" must come back as null, never as undefined or a throw.
+  const unattributed = {
+    author: null,
+    authorEmail: null,
+    commitSha: null,
+    committedAt: null,
+    commitSubject: null,
+    hasMore: false,
+  };
+  const expected: WhyPeek = { ...unattributed, subject: null, pr: null, ticket: null };
+
+  expect(
+    validateWhyPeek("agents.whyPeek", { ...unattributed, subject: null, pr: null, ticket: null }),
+  ).toEqual(expected);
+  expect(validateWhyPeek("agents.whyPeek", unattributed)).toEqual(expected);
+});
+
 test("validateWhyPeek rejects a non-boolean hasMore", () => {
   expect(() => validateWhyPeek("agents.whyPeek", { ...peek, hasMore: "yes" })).toThrow();
 });

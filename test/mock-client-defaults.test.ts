@@ -137,6 +137,10 @@ describe("MockClient defaults — connector.*", () => {
       depth: "full",
       enabled: null,
     });
+    // And the other way round: every field sent is echoed, the one omitted is null.
+    expect(
+      await c.connectorSetConfig({ serviceId: "slack", intervalMs: 900_000, enabled: false }),
+    ).toEqual({ service: "slack", intervalMs: 900_000, depth: null, enabled: false });
   });
 
   test("auth default is the uniform cross-provider success shape", async () => {

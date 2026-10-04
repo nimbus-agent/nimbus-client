@@ -69,6 +69,8 @@ import type {
   IndexMetrics,
   MetricsDoraParams,
   NimbusClientLike,
+  QueryItemsParams,
+  QueryItemsResult,
   RankedSearchItem,
   RankedSearchParams,
   RankedSearchWithRetrieval,
@@ -167,11 +169,11 @@ export class MockClient implements NimbusClientLike {
     this.fixtures = fixtures;
   }
 
-  async agentInvoke(
+  agentInvoke(
     _input: string,
     _options?: { stream?: boolean; sessionId?: string; agent?: string },
   ): Promise<{ reply?: string } & Record<string, unknown>> {
-    return { reply: this.fixtures.reply ?? "[MockClient] agent.invoke" };
+    return Promise.resolve({ reply: this.fixtures.reply ?? "[MockClient] agent.invoke" });
   }
 
   askStream(_input: string, _opts?: AskStreamOptions): AskStreamHandle {
@@ -179,28 +181,32 @@ export class MockClient implements NimbusClientLike {
     const reply = this.fixtures.reply ?? tokens.join("");
     let i = 0;
     let cancelled = false;
+    const nextResult = (): IteratorResult<StreamEvent> => {
+      if (cancelled) return { value: undefined, done: true };
+      if (i < tokens.length) {
+        const text = tokens[i] as string;
+        i += 1;
+        return { value: { type: "token", text }, done: false };
+      }
+      if (i === tokens.length) {
+        i += 1;
+        return {
+          value: { type: "done", reply, sessionId: "mock-session" },
+          done: false,
+        };
+      }
+      return { value: undefined, done: true };
+    };
     const handle: AskStreamHandle = {
       streamId: "mock-stream",
-      async cancel(): Promise<void> {
+      cancel(): Promise<void> {
         cancelled = true;
+        return Promise.resolve();
       },
       [Symbol.asyncIterator](): AsyncIterator<StreamEvent> {
         return {
-          async next(): Promise<IteratorResult<StreamEvent>> {
-            if (cancelled) return { value: undefined, done: true };
-            if (i < tokens.length) {
-              const text = tokens[i] as string;
-              i += 1;
-              return { value: { type: "token", text }, done: false };
-            }
-            if (i === tokens.length) {
-              i += 1;
-              return {
-                value: { type: "done", reply, sessionId: "mock-session" },
-                done: false,
-              };
-            }
-            return { value: undefined, done: true };
+          next(): Promise<IteratorResult<StreamEvent>> {
+            return Promise.resolve(nextResult());
           },
         };
       },
@@ -260,103 +266,98 @@ export class MockClient implements NimbusClientLike {
   async agentsWhy(_p: WhyParams): Promise<WhyBrief> {
     return this.brief("why");
   }
-  async agentsWhyPeek(_p: WhyParams): Promise<WhyPeek> {
+  agentsWhyPeek(_p: WhyParams): Promise<WhyPeek> {
     if (this.fixtures.whyPeek === undefined) {
-      throw new Error("MockClient: no whyPeek fixture configured");
+      return Promise.reject(new Error("MockClient: no whyPeek fixture configured"));
     }
-    return this.fixtures.whyPeek;
+    return Promise.resolve(this.fixtures.whyPeek);
   }
 
-  async getSessionTranscript(_params: {
-    sessionId: string;
-    limit?: number;
-  }): Promise<SessionTranscript> {
-    return { sessionId: "mock-session", turns: [], hasMore: false };
+  getSessionTranscript(_params: { sessionId: string; limit?: number }): Promise<SessionTranscript> {
+    return Promise.resolve({ sessionId: "mock-session", turns: [], hasMore: false });
   }
 
-  async cancelStream(): Promise<{ ok: boolean }> {
-    return { ok: true };
+  cancelStream(): Promise<{ ok: boolean }> {
+    return Promise.resolve({ ok: true });
   }
 
-  async sessionAppend(_params: SessionAppendParams): Promise<{ ok: boolean }> {
-    return { ok: true };
+  sessionAppend(_params: SessionAppendParams): Promise<{ ok: boolean }> {
+    return Promise.resolve({ ok: true });
   }
 
-  async sessionRecall(_params: SessionRecallParams): Promise<SessionRecallResult> {
-    return this.fixtures.sessionRecall ?? { chunks: [] };
+  sessionRecall(_params: SessionRecallParams): Promise<SessionRecallResult> {
+    return Promise.resolve(this.fixtures.sessionRecall ?? { chunks: [] });
   }
 
-  async sessionList(): Promise<SessionListResult> {
-    return this.fixtures.sessionList ?? { sessions: [] };
+  sessionList(): Promise<SessionListResult> {
+    return Promise.resolve(this.fixtures.sessionList ?? { sessions: [] });
   }
 
-  async sessionClear(_params?: SessionClearParams): Promise<SessionClearResult> {
-    return { ok: true, cleared: "all" };
+  sessionClear(_params?: SessionClearParams): Promise<SessionClearResult> {
+    return Promise.resolve({ ok: true, cleared: "all" });
   }
 
-  async queryItems(_params: {
-    services?: string[];
-    types?: string[];
-    sinceMs?: number;
-    untilMs?: number;
-    limit?: number;
-  }): Promise<{ items: IndexedItem[]; meta: { limit: number; total: number } }> {
+  queryItems(_params: QueryItemsParams): Promise<QueryItemsResult> {
     const items = this.fixtures.items ?? [];
-    return { items, meta: { limit: items.length, total: items.length } };
+    return Promise.resolve({ items, meta: { limit: items.length, total: items.length } });
   }
 
-  async searchRanked(_params?: RankedSearchParams): Promise<RankedSearchItem[]> {
-    return this.fixtures.rankedItems ?? [];
+  searchRanked(_params?: RankedSearchParams): Promise<RankedSearchItem[]> {
+    return Promise.resolve(this.fixtures.rankedItems ?? []);
   }
 
-  async searchRankedWithRetrieval(
-    _params?: RankedSearchParams,
-  ): Promise<RankedSearchWithRetrieval> {
+  searchRankedWithRetrieval(_params?: RankedSearchParams): Promise<RankedSearchWithRetrieval> {
     const retrieval =
       this.fixtures.rankedRetrieval === undefined
         ? { vectorRanked: true, reason: null, partial: null, backfill: null }
         : this.fixtures.rankedRetrieval;
-    return {
+    return Promise.resolve({
       items: this.fixtures.rankedItems ?? [],
       retrieval,
       notes: this.fixtures.rankedNotes ?? [],
-    };
+    });
   }
 
-  async querySql(_sql: string): Promise<{ rows: Record<string, unknown>[] }> {
-    return { rows: this.fixtures.sqlRows ?? [] };
+  querySql(_sql: string): Promise<{ rows: Record<string, unknown>[] }> {
+    return Promise.resolve({ rows: this.fixtures.sqlRows ?? [] });
   }
 
-  async auditList(_limit?: number): Promise<unknown[]> {
-    return [];
+  auditList(_limit?: number): Promise<unknown[]> {
+    return Promise.resolve([]);
   }
 
-  async auditVerify(_params?: AuditVerifyParams): Promise<AuditVerifyResult> {
-    return this.fixtures.auditVerify ?? { ok: true, verifiedRows: 0, lastVerifiedId: 0 };
+  auditVerify(_params?: AuditVerifyParams): Promise<AuditVerifyResult> {
+    return Promise.resolve(
+      this.fixtures.auditVerify ?? { ok: true, verifiedRows: 0, lastVerifiedId: 0 },
+    );
   }
 
-  async auditGetSummary(): Promise<AuditSummary> {
-    return this.fixtures.auditSummary ?? { byOutcome: {}, byService: {}, total: 0 };
+  auditGetSummary(): Promise<AuditSummary> {
+    return Promise.resolve(
+      this.fixtures.auditSummary ?? { byOutcome: {}, byService: {}, total: 0 },
+    );
   }
 
-  async auditToolCalls(_params?: AuditToolCallsParams): Promise<AuditToolCallsResult> {
-    return this.fixtures.auditToolCalls ?? { toolCalls: [], hasMore: false, nextCursor: null };
+  auditToolCalls(_params?: AuditToolCallsParams): Promise<AuditToolCallsResult> {
+    return Promise.resolve(
+      this.fixtures.auditToolCalls ?? { toolCalls: [], hasMore: false, nextCursor: null },
+    );
   }
 
-  async egressHead(): Promise<EgressHead> {
-    return this.fixtures.egressHead ?? { head: "", count: 0 };
+  egressHead(): Promise<EgressHead> {
+    return Promise.resolve(this.fixtures.egressHead ?? { head: "", count: 0 });
   }
 
-  async egressList(_params?: EgressListParams): Promise<EgressListResult> {
-    return { rows: this.fixtures.egressRows ?? [] };
+  egressList(_params?: EgressListParams): Promise<EgressListResult> {
+    return Promise.resolve({ rows: this.fixtures.egressRows ?? [] });
   }
 
-  async egressVerify(): Promise<EgressVerifyResult> {
-    return this.fixtures.egressVerify ?? { ok: true, verifiedRows: 0 };
+  egressVerify(): Promise<EgressVerifyResult> {
+    return Promise.resolve(this.fixtures.egressVerify ?? { ok: true, verifiedRows: 0 });
   }
 
-  async egressProveWindow(_params?: EgressProveWindowParams): Promise<EgressProveWindowResult> {
-    return (
+  egressProveWindow(_params?: EgressProveWindowParams): Promise<EgressProveWindowResult> {
+    return Promise.resolve(
       this.fixtures.egressProveWindow ?? {
         rows: [],
         // All-`"none"` + `indeterminate: true` is the honest default for a
@@ -369,27 +370,27 @@ export class MockClient implements NimbusClientLike {
           indeterminate: true,
         },
         verify: { ok: true, verifiedRows: 0 },
-      }
+      },
     );
   }
 
-  async consentRespond(_params: ConsentRespondParams): Promise<{ ok: boolean }> {
-    return { ok: true };
+  consentRespond(_params: ConsentRespondParams): Promise<{ ok: boolean }> {
+    return Promise.resolve({ ok: true });
   }
 
-  async gatewayPing(_params?: { includeDrift?: boolean }): Promise<GatewayPingResult> {
-    return (
+  gatewayPing(_params?: { includeDrift?: boolean }): Promise<GatewayPingResult> {
+    return Promise.resolve(
       this.fixtures.gatewayPing ?? {
         version: "mock",
         uptime: 0,
         agentLimits: { maxAgentDepth: 5, maxToolCallsPerSession: 50 },
-      }
+      },
     );
   }
 
-  async diagGetVersion(): Promise<DiagVersion> {
-    return (
-      this.fixtures.diagVersion ?? { version: "mock", commit: null, buildId: null, uptimeMs: 0 }
+  diagGetVersion(): Promise<DiagVersion> {
+    return Promise.resolve(
+      this.fixtures.diagVersion ?? { version: "mock", commit: null, buildId: null, uptimeMs: 0 },
     );
   }
 
@@ -406,12 +407,12 @@ export class MockClient implements NimbusClientLike {
     };
   }
 
-  async indexMetrics(): Promise<IndexMetrics> {
-    return this.fixtures.indexMetrics ?? this.defaultIndexMetrics();
+  indexMetrics(): Promise<IndexMetrics> {
+    return Promise.resolve(this.fixtures.indexMetrics ?? this.defaultIndexMetrics());
   }
 
-  async diagSnapshot(): Promise<DiagSnapshot> {
-    return (
+  diagSnapshot(): Promise<DiagSnapshot> {
+    return Promise.resolve(
       this.fixtures.diagSnapshot ?? {
         gateway: { version: "mock", uptimeMs: 0 },
         connectorHealth: [],
@@ -425,12 +426,12 @@ export class MockClient implements NimbusClientLike {
           linux_helper: null,
           stale_rules_count: 0,
         },
-      }
+      },
     );
   }
 
-  async adminStatus(): Promise<GatewayStatus> {
-    return (
+  adminStatus(): Promise<GatewayStatus> {
+    return Promise.resolve(
       this.fixtures.adminStatus ?? {
         policy: { signatureValid: true, pendingRestart: false, source: "none" },
         peers: [],
@@ -440,12 +441,12 @@ export class MockClient implements NimbusClientLike {
         hitl: { pendingApprovals: 0, pendingQuorum: 0 },
         identity: { operatorValid: true },
         syncFreshnessMs: 0,
-      }
+      },
     );
   }
 
-  async metricsDora(_params: MetricsDoraParams): Promise<DoraMetricsResult> {
-    return (
+  metricsDora(_params: MetricsDoraParams): Promise<DoraMetricsResult> {
+    return Promise.resolve(
       this.fixtures.metricsDora ?? {
         service: "mock",
         since_ms: 0,
@@ -466,12 +467,12 @@ export class MockClient implements NimbusClientLike {
           change_failure_rate: { value: null, unit: "ratio", sample: 0, gap: "no_repos" },
           mttr: { value: null, unit: "seconds_median", sample: 0, gap: "no_repos" },
         },
-      }
+      },
     );
   }
 
-  async deployPreflight(_params: DeployPreflightParams): Promise<DeployPreflightResult> {
-    return (
+  deployPreflight(_params: DeployPreflightParams): Promise<DeployPreflightResult> {
+    return Promise.resolve(
       this.fixtures.deployPreflight ?? {
         service: "mock",
         target_ref: "main",
@@ -482,12 +483,12 @@ export class MockClient implements NimbusClientLike {
           failing_ci_runs: { count: 0, findings: [], gap: "no_repos" },
           merge_conflicts: { count: 0, findings: [], gap: "no_repos" },
         },
-      }
+      },
     );
   }
 
-  async connectorListStatus(_params?: { serviceId?: string }): Promise<ConnectorSyncStatus[]> {
-    return this.fixtures.connectorSyncStatuses ?? [];
+  connectorListStatus(_params?: { serviceId?: string }): Promise<ConnectorSyncStatus[]> {
+    return Promise.resolve(this.fixtures.connectorSyncStatuses ?? []);
   }
 
   private defaultConnectorStatus(serviceId: string): ConnectorStatusResult {
@@ -505,127 +506,139 @@ export class MockClient implements NimbusClientLike {
     };
   }
 
-  async connectorStatus(params: ConnectorStatusParams): Promise<ConnectorStatusResult> {
-    return this.fixtures.connectorStatus ?? this.defaultConnectorStatus(params.serviceId);
+  connectorStatus(params: ConnectorStatusParams): Promise<ConnectorStatusResult> {
+    return Promise.resolve(
+      this.fixtures.connectorStatus ?? this.defaultConnectorStatus(params.serviceId),
+    );
   }
 
-  async connectorHealthHistory(
+  connectorHealthHistory(
     _params: ConnectorHealthHistoryParams,
   ): Promise<ConnectorHealthHistoryEntry[]> {
-    return this.fixtures.connectorHealthHistory ?? [];
+    return Promise.resolve(this.fixtures.connectorHealthHistory ?? []);
   }
 
-  async connectorPause(_params: ConnectorServiceParams): Promise<{ ok: boolean }> {
-    return { ok: true };
+  connectorPause(_params: ConnectorServiceParams): Promise<{ ok: boolean }> {
+    return Promise.resolve({ ok: true });
   }
 
-  async connectorResume(_params: ConnectorServiceParams): Promise<{ ok: boolean }> {
-    return { ok: true };
+  connectorResume(_params: ConnectorServiceParams): Promise<{ ok: boolean }> {
+    return Promise.resolve({ ok: true });
   }
 
-  async connectorSetInterval(_params: ConnectorSetIntervalParams): Promise<{ ok: boolean }> {
-    return { ok: true };
+  connectorSetInterval(_params: ConnectorSetIntervalParams): Promise<{ ok: boolean }> {
+    return Promise.resolve({ ok: true });
   }
 
-  async connectorSetConfig(params: ConnectorSetConfigParams): Promise<ConnectorSetConfigResult> {
-    return (
+  connectorSetConfig(params: ConnectorSetConfigParams): Promise<ConnectorSetConfigResult> {
+    return Promise.resolve(
       this.fixtures.connectorSetConfig ?? {
         service: params.serviceId,
         intervalMs: params.intervalMs ?? null,
         depth: params.depth ?? null,
         enabled: params.enabled ?? null,
-      }
+      },
     );
   }
 
-  async connectorSync(_params: ConnectorSyncParams): Promise<{ ok: boolean }> {
-    return { ok: true };
+  connectorSync(_params: ConnectorSyncParams): Promise<{ ok: boolean }> {
+    return Promise.resolve({ ok: true });
   }
 
-  async connectorAuth(params: ConnectorAuthParams): Promise<ConnectorAuthResult> {
-    return (
-      this.fixtures.connectorAuth ?? { ok: true, serviceId: params.serviceId, scopesGranted: [] }
+  connectorAuth(params: ConnectorAuthParams): Promise<ConnectorAuthResult> {
+    return Promise.resolve(
+      this.fixtures.connectorAuth ?? { ok: true, serviceId: params.serviceId, scopesGranted: [] },
     );
   }
 
-  async connectorAddMcp(params: ConnectorAddMcpParams): Promise<ConnectorAddMcpResult> {
-    return this.fixtures.connectorAddMcp ?? { ok: true, serviceId: params.serviceId };
+  connectorAddMcp(params: ConnectorAddMcpParams): Promise<ConnectorAddMcpResult> {
+    return Promise.resolve(
+      this.fixtures.connectorAddMcp ?? { ok: true, serviceId: params.serviceId },
+    );
   }
 
-  async connectorRemove(_params: ConnectorRemoveParams): Promise<ConnectorRemoveResult> {
-    return this.fixtures.connectorRemove ?? { ok: true, itemsDeleted: 0, vaultKeysRemoved: [] };
+  connectorRemove(_params: ConnectorRemoveParams): Promise<ConnectorRemoveResult> {
+    return Promise.resolve(
+      this.fixtures.connectorRemove ?? { ok: true, itemsDeleted: 0, vaultKeysRemoved: [] },
+    );
   }
 
-  async connectorReindex(params: ConnectorReindexParams): Promise<ConnectorReindexResult> {
-    return (
+  connectorReindex(params: ConnectorReindexParams): Promise<ConnectorReindexResult> {
+    return Promise.resolve(
       this.fixtures.connectorReindex ?? {
         itemsAffected: 0,
         depth: params.depth ?? "metadata_only",
         mode: "shallow",
-      }
+      },
     );
   }
 
-  async workflowList(): Promise<WorkflowListResult> {
-    return this.fixtures.workflowList ?? { workflows: [] };
+  workflowList(): Promise<WorkflowListResult> {
+    return Promise.resolve(this.fixtures.workflowList ?? { workflows: [] });
   }
 
-  async workflowSave(_params: WorkflowSaveParams): Promise<{ id: string }> {
-    return { id: "mock-workflow" };
+  workflowSave(_params: WorkflowSaveParams): Promise<{ id: string }> {
+    return Promise.resolve({ id: "mock-workflow" });
   }
 
-  async workflowDelete(_params: WorkflowDeleteParams): Promise<{ ok: boolean }> {
-    return { ok: true };
+  workflowDelete(_params: WorkflowDeleteParams): Promise<{ ok: boolean }> {
+    return Promise.resolve({ ok: true });
   }
 
-  async workflowListRuns(_params: WorkflowListRunsParams): Promise<WorkflowListRunsResult> {
-    return this.fixtures.workflowListRuns ?? { runs: [] };
+  workflowListRuns(_params: WorkflowListRunsParams): Promise<WorkflowListRunsResult> {
+    return Promise.resolve(this.fixtures.workflowListRuns ?? { runs: [] });
   }
 
-  async workflowRun(params: WorkflowRunParams): Promise<WorkflowRunResult> {
-    return (
-      this.fixtures.workflowRun ?? {
-        runId: "mock-run",
-        status: params.dryRun === true ? "preview" : "done",
-        dryRun: params.dryRun ?? false,
-        stepResults: [],
-      }
-    );
-  }
-
-  async workflowCancel(_params: WorkflowCancelParams): Promise<WorkflowCancelResult> {
-    return this.fixtures.workflowCancel ?? { cancelled: true };
-  }
-
-  workflowRunStream(params: WorkflowRunStreamParams): WorkflowRunStreamHandle {
-    const chunks = this.fixtures.workflowRunChunks ?? ["mock ", "workflow"];
-    const value = this.fixtures.workflowRun ?? {
+  /**
+   * The run {@link workflowRun} reports with no fixture, and the same run
+   * {@link workflowRunStream} resolves `result` to: the real client answers both
+   * from one `workflow.run` RPC, so the double gives both one default. It echoes
+   * `dryRun`, and a dry run reports `"preview"` as the Gateway does.
+   */
+  private defaultWorkflowRun(params: Pick<WorkflowRunParams, "dryRun">): WorkflowRunResult {
+    return {
       runId: "mock-run",
       status: params.dryRun === true ? "preview" : "done",
       dryRun: params.dryRun ?? false,
       stepResults: [],
     };
+  }
+
+  workflowRun(params: WorkflowRunParams): Promise<WorkflowRunResult> {
+    return Promise.resolve(this.fixtures.workflowRun ?? this.defaultWorkflowRun(params));
+  }
+
+  workflowCancel(_params: WorkflowCancelParams): Promise<WorkflowCancelResult> {
+    return Promise.resolve(this.fixtures.workflowCancel ?? { cancelled: true });
+  }
+
+  workflowRunStream(params: WorkflowRunStreamParams): WorkflowRunStreamHandle {
+    const chunks = this.fixtures.workflowRunChunks ?? ["mock ", "workflow"];
+    const value = this.fixtures.workflowRun ?? this.defaultWorkflowRun(params);
     const cancelResult = this.fixtures.workflowCancel ?? { cancelled: true };
     let i = 0;
+    const nextResult = (): IteratorResult<WorkflowRunEvent> => {
+      if (i < chunks.length) {
+        const text = chunks[i] as string;
+        i += 1;
+        return { value: { type: "chunk", text }, done: false };
+      }
+      if (i === chunks.length) {
+        i += 1;
+        return { value: { type: "done", result: value }, done: false };
+      }
+      return { value: undefined as unknown as WorkflowRunEvent, done: true };
+    };
     return {
       result: Promise.resolve(value),
       streamId: params.streamId ?? "mock-stream",
-      async cancel(): Promise<WorkflowCancelResult> {
-        return cancelResult;
+      cancel(): Promise<WorkflowCancelResult> {
+        return Promise.resolve(cancelResult);
       },
       [Symbol.asyncIterator](): AsyncIterator<WorkflowRunEvent> {
         return {
-          async next(): Promise<IteratorResult<WorkflowRunEvent>> {
-            if (i < chunks.length) {
-              const text = chunks[i] as string;
-              i += 1;
-              return { value: { type: "chunk", text }, done: false };
-            }
-            if (i === chunks.length) {
-              i += 1;
-              return { value: { type: "done", result: value }, done: false };
-            }
-            return { value: undefined as unknown as WorkflowRunEvent, done: true };
+          next(): Promise<IteratorResult<WorkflowRunEvent>> {
+            return Promise.resolve(nextResult());
           },
         };
       },

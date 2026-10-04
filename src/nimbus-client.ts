@@ -83,7 +83,7 @@ import {
   validateWorkflowRun,
   validateWorkflowSave,
 } from "./validate.js";
-import { createWorkflowRunStream } from "./workflow-stream.js";
+import { createWorkflowRunStream, workflowRunWireParams } from "./workflow-stream.js";
 
 export type NimbusClientOptions = {
   socketPath: string;
@@ -112,12 +112,41 @@ export type RankedSearchParams = {
 };
 
 /**
+ * The `index.searchRanked` wire params for a {@link RankedSearchParams}. Both
+ * {@link NimbusClient.searchRanked} and {@link NimbusClient.searchRankedWithRetrieval}
+ * send these (the latter adds `envelope`), so a field added to `RankedSearchParams`
+ * reaches the Gateway from both methods, not only from the one that was edited.
+ */
+function rankedSearchWireParams(params: RankedSearchParams): Record<string, unknown> {
+  return {
+    name: params.name,
+    service: params.service,
+    itemType: params.itemType,
+    limit: params.limit,
+    semantic: params.semantic,
+    contextChunks: params.contextChunks,
+  };
+}
+
+/**
  * An indexed item as `index.queryItems` returns it: a NimbusItem plus the
  * gateway's composite index key (`service:external_id`). `NimbusItem.id` is the
  * bare external id and is not unique across services, so use `indexPrimaryKey`
  * for identity. Mirrors {@link RankedSearchItem}.
  */
 export type IndexedItem = NimbusItem & { indexPrimaryKey: string };
+
+/** Parameters for {@link NimbusClient.queryItems}. */
+export type QueryItemsParams = {
+  services?: string[];
+  types?: string[];
+  sinceMs?: number;
+  untilMs?: number;
+  limit?: number;
+};
+
+/** Result of {@link NimbusClient.queryItems}. */
+export type QueryItemsResult = { items: IndexedItem[]; meta: { limit: number; total: number } };
 
 /**
  * A ranked index hit: a {@link NimbusItem} enriched with ranking metadata.
@@ -1173,13 +1202,7 @@ export interface NimbusClientLike {
   sessionClear(params?: SessionClearParams): Promise<SessionClearResult>;
   metricsDora(params: MetricsDoraParams): Promise<DoraMetricsResult>;
   deployPreflight(params: DeployPreflightParams): Promise<DeployPreflightResult>;
-  queryItems(params: {
-    services?: string[];
-    types?: string[];
-    sinceMs?: number;
-    untilMs?: number;
-    limit?: number;
-  }): Promise<{ items: IndexedItem[]; meta: { limit: number; total: number } }>;
+  queryItems(params: QueryItemsParams): Promise<QueryItemsResult>;
   searchRanked(params?: RankedSearchParams): Promise<RankedSearchItem[]>;
   searchRankedWithRetrieval(params?: RankedSearchParams): Promise<RankedSearchWithRetrieval>;
   querySql(sql: string): Promise<{ rows: Record<string, unknown>[] }>;
@@ -1522,13 +1545,7 @@ export class NimbusClient implements NimbusClientLike {
     return validateDeployPreflight("deploy.preflight", raw);
   }
 
-  async queryItems(params: {
-    services?: string[];
-    types?: string[];
-    sinceMs?: number;
-    untilMs?: number;
-    limit?: number;
-  }): Promise<{ items: IndexedItem[]; meta: { limit: number; total: number } }> {
+  async queryItems(params: QueryItemsParams): Promise<QueryItemsResult> {
     const raw = await this.ipc.call("index.queryItems", {
       services: params.services,
       types: params.types,
@@ -1540,14 +1557,7 @@ export class NimbusClient implements NimbusClientLike {
   }
 
   async searchRanked(params: RankedSearchParams = {}): Promise<RankedSearchItem[]> {
-    const raw = await this.ipc.call("index.searchRanked", {
-      name: params.name,
-      service: params.service,
-      itemType: params.itemType,
-      limit: params.limit,
-      semantic: params.semantic,
-      contextChunks: params.contextChunks,
-    });
+    const raw = await this.ipc.call("index.searchRanked", rankedSearchWireParams(params));
     return validateRankedItems("index.searchRanked", raw);
   }
 
@@ -1564,12 +1574,7 @@ export class NimbusClient implements NimbusClientLike {
     params: RankedSearchParams = {},
   ): Promise<RankedSearchWithRetrieval> {
     const raw = await this.ipc.call("index.searchRanked", {
-      name: params.name,
-      service: params.service,
-      itemType: params.itemType,
-      limit: params.limit,
-      semantic: params.semantic,
-      contextChunks: params.contextChunks,
+      ...rankedSearchWireParams(params),
       envelope: true,
     });
     return validateRankedSearchWithRetrieval("index.searchRanked", raw);
@@ -1859,16 +1864,7 @@ export class NimbusClient implements NimbusClientLike {
    * stream; see {@link WorkflowRunParams} for the `stream` caveat.
    */
   async workflowRun(params: WorkflowRunParams): Promise<WorkflowRunResult> {
-    const raw = await this.ipc.call("workflow.run", {
-      name: params.name,
-      triggeredBy: params.triggeredBy,
-      dryRun: params.dryRun,
-      stream: params.stream,
-      sessionId: params.sessionId,
-      agent: params.agent,
-      paramsOverride: params.paramsOverride,
-      streamId: params.streamId,
-    });
+    const raw = await this.ipc.call("workflow.run", workflowRunWireParams(params));
     return validateWorkflowRun("workflow.run", raw);
   }
 

@@ -54,6 +54,7 @@ import type {
   PreflightCheck,
   PreflightGap,
   PrFinding,
+  QueryItemsResult,
   RankedSearchItem,
   RankedSearchWithRetrieval,
   SandboxDiag,
@@ -116,6 +117,26 @@ function bool(method: string, o: Record<string, unknown>, key: string): boolean 
 function arr(method: string, v: unknown): unknown[] {
   if (!Array.isArray(v)) throw new IpcResponseError(method, "expected an array");
   return v;
+}
+
+/** An array field whose every element must be a string. */
+function strArr(method: string, o: Record<string, unknown>, key: string): string[] {
+  return arr(method, o[key]).map((s) => {
+    if (typeof s !== "string") {
+      throw new IpcResponseError(method, `"${key}" must contain only strings`);
+    }
+    return s;
+  });
+}
+
+/**
+ * A success arm's `ok` flag, which must be the literal `true`: on the methods that use
+ * this, `ok: false` is not a resolved failure shape, so it throws instead of passing
+ * through. A statement, not a field read, so each caller keeps checking `ok` before
+ * anything else in the payload.
+ */
+function requireOk(method: string, o: Record<string, unknown>): void {
+  if (!bool(method, o, "ok")) throw new IpcResponseError(method, `"ok" must be true`);
 }
 
 function optStr(o: Record<string, unknown>, key: string): string | undefined {
@@ -253,10 +274,7 @@ export function validateSessionClear(method: string, v: unknown): SessionClearRe
  * `itemType` passes through verbatim: ItemType is an open enum, and rewriting
  * an unrecognised type would be data corruption.
  */
-export function validateQueryItems(
-  method: string,
-  v: unknown,
-): { items: IndexedItem[]; meta: { limit: number; total: number } } {
+export function validateQueryItems(method: string, v: unknown): QueryItemsResult {
   const o = record(method, v);
 
   const items = arr(method, o["items"]).map((raw): IndexedItem => {
@@ -1107,15 +1125,8 @@ export function validateConnectorReindex(method: string, v: unknown): ConnectorR
 /** Result of `connector.auth`: identical across every provider. */
 export function validateConnectorAuth(method: string, v: unknown): ConnectorAuthResult {
   const o = record(method, v);
-  if (!bool(method, o, "ok")) {
-    throw new IpcResponseError(method, `"ok" must be true`);
-  }
-  const scopesGranted = arr(method, o["scopesGranted"]).map((s) => {
-    if (typeof s !== "string") {
-      throw new IpcResponseError(method, `"scopesGranted" must contain only strings`);
-    }
-    return s;
-  });
+  requireOk(method, o);
+  const scopesGranted = strArr(method, o, "scopesGranted");
   return { ok: true, serviceId: str(method, o, "serviceId"), scopesGranted };
 }
 
@@ -1138,9 +1149,7 @@ function validateGatedOrElse<T>(
 /** Result of `connector.addMcp`. See {@link ConnectorAddMcpResult} for the dual-shape contract. */
 export function validateConnectorAddMcp(method: string, v: unknown): ConnectorAddMcpResult {
   return validateGatedOrElse(method, v, (m, o) => {
-    if (!bool(m, o, "ok")) {
-      throw new IpcResponseError(m, `"ok" must be true`);
-    }
+    requireOk(m, o);
     return { ok: true as const, serviceId: str(m, o, "serviceId") };
   });
 }
@@ -1148,15 +1157,8 @@ export function validateConnectorAddMcp(method: string, v: unknown): ConnectorAd
 /** Result of `connector.remove`. See {@link ConnectorRemoveResult} for the dual-shape contract. */
 export function validateConnectorRemove(method: string, v: unknown): ConnectorRemoveResult {
   return validateGatedOrElse(method, v, (m, o) => {
-    if (!bool(m, o, "ok")) {
-      throw new IpcResponseError(m, `"ok" must be true`);
-    }
-    const vaultKeysRemoved = arr(m, o["vaultKeysRemoved"]).map((k) => {
-      if (typeof k !== "string") {
-        throw new IpcResponseError(m, `"vaultKeysRemoved" must contain only strings`);
-      }
-      return k;
-    });
+    requireOk(m, o);
+    const vaultKeysRemoved = strArr(m, o, "vaultKeysRemoved");
     return { ok: true as const, itemsDeleted: num(m, o, "itemsDeleted"), vaultKeysRemoved };
   });
 }

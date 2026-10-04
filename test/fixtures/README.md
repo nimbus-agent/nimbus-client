@@ -8,14 +8,15 @@ pin `validateQueryItems` to a response real gateway code produces.
 
 - Captured: 2026-07-22
 - Gateway source: `nimbus-agent/Nimbus` `main` @ `40007ebb` — carries #780
-  (`listItems()` / `IndexedItem`), i.e. the fix Stage 0 Task 2 shipped.
+  (`listItems()` / `IndexedItem`), the fix for the raw snake_case rows this gate
+  exists to catch.
 - Method: the `index.queryItems` RPC handler
   (`packages/gateway/src/ipc/diagnostics-rpc.ts` `rpcIndexQueryItems`), which
   wraps `LocalIndex.listItems(...)` in `{ items, meta: { limit, total } }`.
 
 ### How it was produced, and why not `nimbus query`
 
-The plan's Step 1 says to capture from a live gateway via `nimbus query --json`.
+The obvious route was to capture from a live gateway via `nimbus query --json`.
 That was not possible: the only installed/running gateway on the capture machine
 was **v0.22.0**, which predates #780 and still emits the old raw-row shape — the
 exact bug this gate exists to catch. Capturing from it would have pinned the
@@ -39,8 +40,9 @@ this file to make the test pass.
 
 ## `agent-briefs.json`
 
-Golden `<agent>.briefReady` payloads for all nine `agents.*` methods, consumed
-by `test/agents-conformance.test.ts`.
+Golden `<agent>.briefReady` payloads for the nine agents this client implements
+(`SUPPORTED_AGENT_NAMES` in `src/agents.ts`), consumed by
+`test/agents-conformance.test.ts`.
 
 - Regenerated: 2026-07-24 — added the ninth agent `why` (why-lens step 2). The
   generator now includes a `why` entry in its `PARAMS`; the `why` brief's subject
@@ -55,10 +57,14 @@ by `test/agents-conformance.test.ts`.
 **Regenerate from the Nimbus repo — never edit by hand:**
 
 ```bash
-# from the Nimbus repo root (see the branch note above)
+# from the root of a Nimbus checkout on current main
 bun run scripts/gen-agent-brief-fixtures.ts > agent-briefs.json
 cp agent-briefs.json ../nimbus-client/test/fixtures/agent-briefs.json
 ```
+
+The generator emits exactly the agents in its `PARAMS` table (today the same nine), and
+the conformance test requires the fixture's keys to equal `SUPPORTED_AGENT_NAMES`. So
+exposing another agent here means adding it to that `PARAMS` table in Nimbus as well.
 
 ### The rule
 

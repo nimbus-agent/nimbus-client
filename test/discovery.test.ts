@@ -64,6 +64,48 @@ describe("readGatewayState", () => {
     expect(r).toBeUndefined();
     rmSync(paths.dataDir, { recursive: true, force: true });
   });
+
+  test("returns undefined for well-formed JSON that is not a state object", async () => {
+    // Each of these parses cleanly, so it gets past JSON.parse to the shape guard.
+    // None is a state object, and none may come back looking like one.
+    const paths = makeTempPaths();
+    try {
+      for (const body of ["null", "[]", '[{"pid":1,"socketPath":"/s"}]', "42", '"gateway"']) {
+        writeFileSync(join(paths.dataDir, "gateway.json"), body);
+        expect(await readGatewayState(paths)).toBeUndefined();
+      }
+    } finally {
+      rmSync(paths.dataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("returns undefined when logPath is present but not a string", async () => {
+    const paths = makeTempPaths();
+    try {
+      writeFileSync(
+        join(paths.dataDir, "gateway.json"),
+        JSON.stringify({ pid: 1, socketPath: "/run/sock", logPath: 7 }),
+      );
+      expect(await readGatewayState(paths)).toBeUndefined();
+    } finally {
+      rmSync(paths.dataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("an empty logPath is dropped, not returned as a path", async () => {
+    const paths = makeTempPaths();
+    try {
+      writeFileSync(
+        join(paths.dataDir, "gateway.json"),
+        JSON.stringify({ pid: 3, socketPath: "/run/sock", logPath: "" }),
+      );
+      const r = await readGatewayState(paths);
+      expect(r).toEqual({ pid: 3, socketPath: "/run/sock" });
+      expect(Object.hasOwn(r ?? {}, "logPath")).toBe(false);
+    } finally {
+      rmSync(paths.dataDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("discoverSocketPath precedence", () => {
