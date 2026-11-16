@@ -2,6 +2,13 @@
 
 All notable changes to `@nimbus-dev/client` are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [0.19.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.18.0...client-v0.19.0) (2026-11-16)
+
+
+### Features
+
+* type the consent reply's typed confirmation and answer source ([#95](https://github.com/nimbus-agent/nimbus-client/issues/95)) ([f810840](https://github.com/nimbus-agent/nimbus-client/commit/f8108409149661fb2946f0b80c49c6e8c42314f7))
+
 ## [0.18.0](https://github.com/nimbus-agent/nimbus-client/compare/client-v0.17.3...client-v0.18.0) (2026-09-18)
 
 
