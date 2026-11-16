@@ -101,4 +101,11 @@ export type HitlRequest = {
   readonly details?: unknown;
   /** Present only when the batch was produced by a known stream. */
   readonly streamId?: string;
+  /** The Gateway's action type for the pending action (a `consent.request` field); absent when it named none. */
+  readonly actionType?: string;
+  /**
+   * Present only on a type-to-confirm request (a Wave 4 connector write): the exact text the owner
+   * must TYPE. Answer with `consentRespond({ requestId, approved: true, typed })`.
+   */
+  readonly confirmText?: string;
 };

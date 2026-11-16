@@ -527,7 +527,25 @@ export type ConsentRespondParams = {
   /** The `requestId` from the `HitlRequest` delivered via {@link NimbusClientLike.subscribeHitl}. */
   requestId: string;
   approved: boolean;
+  /**
+   * The text the owner typed, for a request that carries `confirmText` (a type-to-confirm
+   * request). The Gateway approves only when it equals `confirmText` exactly (untrimmed,
+   * case-sensitive); a missing value counts as the empty string. At most 512 characters.
+   * Ignored by the Gateway on a request that has no `confirmText`.
+   */
+  typed?: string;
+  /**
+   * Where the answer came from. Omitted, the Gateway records `unknown`. Only the values in
+   * {@link CONSENT_ANSWER_SOURCES} are accepted; any other value is a denial.
+   */
+  answerSource?: ConsentAnswerSource;
 };
+
+/** The answer sources a client may report on a consent reply (the Gateway's `REPORTED_ANSWER_SOURCES`). */
+export const CONSENT_ANSWER_SOURCES = ["human", "auto", "script"] as const;
+
+/** One of {@link CONSENT_ANSWER_SOURCES}. */
+export type ConsentAnswerSource = (typeof CONSENT_ANSWER_SOURCES)[number];
 
 /**
  * Result of {@link NimbusClient.gatewayPing}. `version`, `uptime`, and
@@ -1290,25 +1308,28 @@ export class NimbusClient implements NimbusClientLike {
   }
 
   subscribeHitl(handler: (req: HitlRequest) => void): { dispose(): void } {
-    const onBatch = (params: unknown): void => {
+    const onRequest = (params: unknown): void => {
       if (typeof params !== "object" || params === null) return;
       const p = params as Record<string, unknown>;
       if (typeof p["requestId"] !== "string" || typeof p["prompt"] !== "string") return;
-      const req: HitlRequest =
-        typeof p["streamId"] === "string"
-          ? {
-              requestId: p["requestId"],
-              prompt: p["prompt"],
-              details: p["details"],
-              streamId: p["streamId"],
-            }
-          : { requestId: p["requestId"], prompt: p["prompt"], details: p["details"] };
+      const req: HitlRequest = {
+        requestId: p["requestId"],
+        prompt: p["prompt"],
+        details: p["details"],
+        ...(typeof p["streamId"] === "string" ? { streamId: p["streamId"] } : {}),
+        ...(typeof p["actionType"] === "string" ? { actionType: p["actionType"] } : {}),
+        ...(typeof p["confirmText"] === "string" ? { confirmText: p["confirmText"] } : {}),
+      };
       handler(req);
     };
-    this.ipc.onNotification("agent.hitlBatch", onBatch);
+    // `agent.hitlBatch` is what this client has always listened to; the Gateway's own consent
+    // prompt is `consent.request`, which also carries `actionType` and `confirmText`.
+    this.ipc.onNotification("agent.hitlBatch", onRequest);
+    this.ipc.onNotification("consent.request", onRequest);
     return {
       dispose: () => {
-        this.ipc.offNotification("agent.hitlBatch", onBatch);
+        this.ipc.offNotification("agent.hitlBatch", onRequest);
+        this.ipc.offNotification("consent.request", onRequest);
       },
     };
   }
@@ -1658,9 +1679,21 @@ export class NimbusClient implements NimbusClientLike {
    * unknown, foreign (another client's), or already-answered request ids.
    */
   async consentRespond(params: ConsentRespondParams): Promise<{ ok: boolean }> {
+    const { typed, answerSource } = params;
+    if (
+      answerSource !== undefined &&
+      !(CONSENT_ANSWER_SOURCES as readonly unknown[]).includes(answerSource)
+    ) {
+      // A JS caller can bypass the type; the Gateway would treat this as a denial, so fail loudly.
+      throw new TypeError(
+        `consentRespond: answerSource must be one of ${CONSENT_ANSWER_SOURCES.join(", ")}`,
+      );
+    }
     const raw = await this.ipc.call("consent.respond", {
       requestId: params.requestId,
       approved: params.approved,
+      ...(typed === undefined ? {} : { typed }),
+      ...(answerSource === undefined ? {} : { answerSource }),
     });
     return validateOk("consent.respond", raw);
   }

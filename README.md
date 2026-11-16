@@ -67,6 +67,41 @@ Streaming and subscriptions: `askStream` (`AskStreamHandle`), `workflowRunStream
 `subscribeConnectorConfigChanged` (`ConnectorConfigChanged`),
 `subscribeAgentBrief` (`AgentBriefEvent`), and `cancelStream`.
 
+### Answering a typed confirmation
+
+A Wave 4 connector write is approved only when the owner types the confirm text the
+Gateway names. `subscribeHitl` delivers that text as `HitlRequest.confirmText` (absent on
+an ordinary request); reply with what the person typed, and say where the answer came from:
+
+```ts
+client.subscribeHitl(async (req) => {
+  // EVERY request is put to the person. `askPerson` and `askPersonToType` are yours to write:
+  // they show `req.prompt` and return what the person decided or typed.
+  if (req.confirmText === undefined) {
+    const approved = await askPerson(req.prompt);
+    await client.consentRespond({ requestId: req.requestId, approved, answerSource: "human" });
+    return;
+  }
+  // A typed confirmation: the person's text IS the decision. Send what they typed, unchanged.
+  // `null` means they dismissed the prompt.
+  const typed = await askPersonToType(req.prompt, req.confirmText);
+  await client.consentRespond({
+    requestId: req.requestId,
+    approved: typed !== null,
+    ...(typed === null ? {} : { typed }),
+    answerSource: "human",
+  });
+});
+```
+
+Report `answerSource: "human"` only when a person answered that request. An answer your code
+decided is `"auto"`; one a script or a flag supplied is `"script"`.
+
+The Gateway compares `typed` to `confirmText` exactly (no trimming, case-sensitive); a
+missing or wrong value denies the write. `answerSource` is optional: omitted, the Gateway
+records `unknown`, and a Wave 4 write is never approved by `auto` or `script`. Any value
+outside the three listed is rejected before it is sent.
+
 ### Validated responses
 
 Every `NimbusClient` method validates the Gateway's JSON-RPC result before
