@@ -67,6 +67,29 @@ Streaming and subscriptions: `askStream` (`AskStreamHandle`), `workflowRunStream
 `subscribeConnectorConfigChanged` (`ConnectorConfigChanged`),
 `subscribeAgentBrief` (`AgentBriefEvent`), and `cancelStream`.
 
+### Answering a typed confirmation
+
+A Wave 4 connector write is approved only when the owner types the confirm text the
+Gateway names. `subscribeHitl` delivers that text as `HitlRequest.confirmText` (absent on
+an ordinary request); reply with what the person typed, and say where the answer came from:
+
+```ts
+client.subscribeHitl(async (req) => {
+  const typed = req.confirmText === undefined ? undefined : await askPersonToType(req.confirmText);
+  await client.consentRespond({
+    requestId: req.requestId,
+    approved: true,
+    ...(typed === undefined ? {} : { typed }),
+    answerSource: "human", // "human" | "auto" | "script"
+  });
+});
+```
+
+The Gateway compares `typed` to `confirmText` exactly (no trimming, case-sensitive); a
+missing or wrong value denies the write. `answerSource` is optional: omitted, the Gateway
+records `unknown`, and a Wave 4 write is never approved by `auto` or `script`. Any value
+outside the three listed is rejected before it is sent.
+
 ### Validated responses
 
 Every `NimbusClient` method validates the Gateway's JSON-RPC result before

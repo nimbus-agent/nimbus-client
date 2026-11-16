@@ -330,6 +330,42 @@ describe("NimbusClient method dispatch", () => {
     expect(result).toEqual({ ok: true });
   });
 
+  test("consentRespond sends typed and answerSource under exactly those names", async () => {
+    const ipc = new FakeIpc([{ ok: true }]);
+    await makeClient(ipc).consentRespond({
+      requestId: "r1",
+      approved: true,
+      typed: "github/acme/api",
+      answerSource: "human",
+    });
+    expect(ipc.calls[0]).toEqual({
+      method: "consent.respond",
+      params: { requestId: "r1", approved: true, typed: "github/acme/api", answerSource: "human" },
+    });
+  });
+
+  test("consentRespond sends an empty typed string as given, and omits unset fields", async () => {
+    const ipc = new FakeIpc([{ ok: true }, { ok: true }]);
+    const c = makeClient(ipc);
+    await c.consentRespond({ requestId: "r1", approved: false, typed: "" });
+    await c.consentRespond({ requestId: "r2", approved: true, answerSource: "script" });
+    expect(ipc.calls[0]?.params).toEqual({ requestId: "r1", approved: false, typed: "" });
+    expect(ipc.calls[1]?.params).toEqual({
+      requestId: "r2",
+      approved: true,
+      answerSource: "script",
+    });
+  });
+
+  test("consentRespond rejects an answerSource the Gateway does not accept, sending nothing", async () => {
+    const ipc = new FakeIpc([{ ok: true }]);
+    const c = makeClient(ipc);
+    // @ts-expect-error "delegate" is a Gateway-internal source, not one a client may report
+    const bad = c.consentRespond({ requestId: "r1", approved: true, answerSource: "delegate" });
+    await expect(bad).rejects.toThrow(TypeError);
+    expect(ipc.calls).toHaveLength(0);
+  });
+
   test("consentRespond propagates a Gateway rejection (unknown/foreign request)", async () => {
     const ipc = new FakeIpc();
     ipc.call = async () => {
@@ -499,6 +535,28 @@ describe("NimbusClient method dispatch", () => {
     expect(got[1]).not.toHaveProperty("streamId");
   });
 
+  test("subscribeHitl surfaces a consent.request's actionType and confirmText", () => {
+    const ipc = new FakeIpc();
+    const got: HitlRequest[] = [];
+    makeClient(ipc).subscribeHitl((r) => got.push(r));
+    ipc.emit("consent.request", {
+      requestId: "r1",
+      prompt: "Merge?",
+      actionType: "github.pullRequest.merge",
+      confirmText: "github/acme/api#42",
+    });
+    ipc.emit("consent.request", { requestId: "r2", prompt: "Plain" });
+    ipc.emit("consent.request", { requestId: "r3", prompt: "Bad", confirmText: 7 });
+    expect(got[0]).toMatchObject({
+      requestId: "r1",
+      actionType: "github.pullRequest.merge",
+      confirmText: "github/acme/api#42",
+    });
+    expect(got[1]).not.toHaveProperty("confirmText");
+    expect(got[1]).not.toHaveProperty("actionType");
+    expect(got[2]).not.toHaveProperty("confirmText");
+  });
+
   test("subscribeHitl dispose() unregisters, so a torn-down consumer stops being called", () => {
     // The removable-handler rule: a leaked handler keeps a dead consumer
     // reachable from the live connection, and keeps delivering prompts to it.
@@ -512,6 +570,7 @@ describe("NimbusClient method dispatch", () => {
 
     expect(got.map((r) => r.requestId)).toEqual(["r1"]);
     expect(ipc.notifHandlers.get("agent.hitlBatch")).toHaveLength(0);
+    expect(ipc.notifHandlers.get("consent.request")).toHaveLength(0);
   });
 
   test("close disconnects the transport", async () => {
