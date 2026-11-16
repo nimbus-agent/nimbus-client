@@ -75,15 +75,27 @@ an ordinary request); reply with what the person typed, and say where the answer
 
 ```ts
 client.subscribeHitl(async (req) => {
-  const typed = req.confirmText === undefined ? undefined : await askPersonToType(req.confirmText);
+  // EVERY request is put to the person. `askPerson` and `askPersonToType` are yours to write:
+  // they show `req.prompt` and return what the person decided or typed.
+  if (req.confirmText === undefined) {
+    const approved = await askPerson(req.prompt);
+    await client.consentRespond({ requestId: req.requestId, approved, answerSource: "human" });
+    return;
+  }
+  // A typed confirmation: the person's text IS the decision. Send what they typed, unchanged.
+  // `null` means they dismissed the prompt.
+  const typed = await askPersonToType(req.prompt, req.confirmText);
   await client.consentRespond({
     requestId: req.requestId,
-    approved: true,
-    ...(typed === undefined ? {} : { typed }),
-    answerSource: "human", // "human" | "auto" | "script"
+    approved: typed !== null,
+    ...(typed === null ? {} : { typed }),
+    answerSource: "human",
   });
 });
 ```
+
+Report `answerSource: "human"` only when a person answered that request. An answer your code
+decided is `"auto"`; one a script or a flag supplied is `"script"`.
 
 The Gateway compares `typed` to `confirmText` exactly (no trimming, case-sensitive); a
 missing or wrong value denies the write. `answerSource` is optional: omitted, the Gateway
