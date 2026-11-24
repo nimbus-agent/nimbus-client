@@ -41,11 +41,11 @@
     "prepublishOnly": "bun run build && bun run typecheck && bun test"
   },
   "dependencies": {
-    "@nimbus-dev/sdk": "^2.0.0"
+    "@nimbus-dev/sdk": "^2.3.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.15",
-    "@types/bun": "^1.4.2",
+    "@biomejs/biome": "^2.6.9",
+    "@types/bun": "^1.4.5",
     "typescript": "^7.0.2"
   }
 }
