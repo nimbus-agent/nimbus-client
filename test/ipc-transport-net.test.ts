@@ -141,7 +141,10 @@ for (const dial of NET_DIALS) {
       const pending = c.call("oversized");
 
       const gatewaySide = await accepted(socket);
+      // Node only emits "end" on a stream that is being read; Bun 1.4 follows that, so
+      // the gateway side reads (and discards) while it waits for the client to end.
       const ended = once(gatewaySide, "end");
+      gatewaySide.resume();
       // One byte past the reader's 1 MB line limit, and no newline to end the frame.
       gatewaySide.write("x".repeat(1024 * 1024 + 1));
 
