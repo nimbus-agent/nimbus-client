@@ -11,7 +11,7 @@ gateway (`nimbus start`) without hand-rolling the IPC contract. Published to npm
 ## Stack
 
 - **Runtime:** Bun v1.2+ (the `engines` floor; CI, `packageManager` and `.bun-version` pin
-  1.3.14) · **Language:** TypeScript 7.x strict · **Linter:** Biome
+  1.4.5) · **Language:** TypeScript 7.x strict · **Linter:** Biome
 - **Single runtime dependency:** [`@nimbus-dev/sdk`](https://github.com/nimbus-agent/nimbus-sdk),
   consumed as a caret range on the published package (never `workspace:*` in this
   standalone repo). `scripts/check-package-identity.test.ts` asserts the oldest sdk
